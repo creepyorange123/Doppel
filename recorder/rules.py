@@ -78,6 +78,8 @@ class RuleSnapshot:
     mode: str = "blocklist"
     app_rules: dict[str, str] = field(default_factory=dict)
     domain_rules: dict[str, str] = field(default_factory=dict)
+    # Stretch goal from the plan: setting store_raw_content = '0' keeps only flags.
+    store_bodies: bool = True
 
     def decide(self, app_path: str | None, app_name: str | None, domain: str | None,
                *, process_known: bool = True) -> str:
@@ -128,7 +130,10 @@ class RuleBook:
         mode = db.get_setting(self._conn, "tracking_mode", "blocklist")
         if mode not in ("blocklist", "allowlist"):
             mode = "blocklist"
-        snap = RuleSnapshot(mode="fallback" if self._fallback and mode == "blocklist" else mode)
+        snap = RuleSnapshot(
+            mode="fallback" if self._fallback and mode == "blocklist" else mode,
+            store_bodies=db.get_setting(self._conn, "store_raw_content", "1") != "0",
+        )
         for kind, match, rule in self._conn.execute("SELECT kind, match, rule FROM app_rules"):
             if rule not in _STRICTNESS:
                 continue
