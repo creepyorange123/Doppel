@@ -21,7 +21,7 @@ def test_trust_commands_target_user_store_only():
 
 
 def test_scheduled_task_is_not_elevated():
-    cmd = service.schtasks_create_command(["C:\x\pythonw.exe", "run_recorder.py", "run"])
+    cmd = service.schtasks_create_command(["C:/x/pythonw.exe", "run_recorder.py", "run"])
     assert cmd[cmd.index("/RL") + 1] == "LIMITED"
     assert cmd[cmd.index("/SC") + 1] == "ONLOGON"
 
