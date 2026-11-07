@@ -53,20 +53,17 @@ function CompanyPanel({ name, onChanged }: { name: string; onChanged: () => void
     <div className="panel">
       <section className="card">
         <h3>{card.name}</h3>
-        <p>{card.policy_summary ?? "No research yet for this company."}</p>
-        {card.is_data_broker && <p className="warning">Registered or reported as a data broker.</p>}
-        {card.news.length > 0 && (
-          <ul>
-            {card.news.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
-        )}
-        <p className="muted">
-          From this computer: {card.exposure.requests} requests from {Object.keys(card.exposure.apps).join(", ")}.
-          {card.from_snapshot ? " Research from the bundled snapshot." : ""}
-        </p>
-        {card.sources.length > 0 && <p className="muted small">Sources: {card.sources.join(" · ")}</p>}
+        {card.is_data_broker && <p className="warning">Registered data broker.</p>}
+        <ul className="plain card-lines">
+          {card.lines.map((l, i) => (
+            <li key={i}>
+              <span className={l.kind === "measured" ? "tag measured" : "tag inferred"}>{l.kind}</span> {l.text}
+              {l.source && <span className="muted small"> — source: {l.source}</span>}
+            </li>
+          ))}
+        </ul>
+        {!card.policy_summary && <p className="muted">No research yet for this company.</p>}
+        {card.from_snapshot && <p className="muted small">Research from the bundled, signed snapshot.</p>}
       </section>
 
       <div className="row">
@@ -88,7 +85,12 @@ function CompanyPanel({ name, onChanged }: { name: string; onChanged: () => void
         )}
       </div>
       {msg && <p className="ok">{msg}</p>}
-      {letter && <textarea className="letter" readOnly value={letter} rows={16} />}
+      {letter && (
+        <>
+          <p className="muted small">This letter is a template, not legal advice.</p>
+          <textarea className="letter" readOnly value={letter} rows={16} />
+        </>
+      )}
 
       <h3>Requests behind this</h3>
       <ul className="plain requests">

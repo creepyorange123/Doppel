@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS companies (
     opt_out_url     TEXT,
     news            TEXT,               -- JSON
     sources         TEXT,               -- JSON list of URLs
+    policy_source   TEXT,               -- URL the policy summary was extracted from
+    broker_source   TEXT,               -- registry URL that lists the company
     researched_at   INTEGER,
     from_snapshot   INTEGER NOT NULL DEFAULT 0
 );

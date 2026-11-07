@@ -48,3 +48,6 @@ a.button { color: var(--fg); background: #20242b; border: 1px solid var(--line);
 .small { font-size: 12px; overflow-wrap: anywhere; }
 .toggle { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0; }
 code { overflow-wrap: anywhere; }
+.card-lines li { margin: 6px 0; }
+.tag.measured { color: #a6d8b6; border-color: #2f5a3f; margin-left: 0; }
+.tag.inferred { color: #ffd27a; border-color: #5a4a22; margin-left: 0; }

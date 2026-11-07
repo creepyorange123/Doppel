@@ -110,8 +110,8 @@ def company_detail(conn, payload) -> dict:
         apps[app] += 1
         requests.append({"id": rid, "captured_at": at, "app_name": app, "dest_domain": dest, "summary": summary,
                          "score": score, "tier": tier, "breakdown": json.loads(breakdown or "[]")})
-    row = conn.execute("SELECT policy_summary, is_data_broker, opt_out_url, news, sources, researched_at, from_snapshot "
-                       "FROM companies WHERE name = ?", (company,)).fetchone()
+    row = conn.execute("SELECT policy_summary, is_data_broker, opt_out_url, news, sources, researched_at, from_snapshot, "
+                       "policy_source, broker_source FROM companies WHERE name = ?", (company,)).fetchone()
     opt_out = safe_opt_out(row[2], company, tdb) if row else None
     card = {
         "name": company,
@@ -125,9 +125,80 @@ def company_detail(conn, payload) -> dict:
         "from_snapshot": bool(row[6]) if row else None,
         "exposure": {"requests": len(requests), "apps": dict(apps), "topics": dict(topics_), "flags": dict(flags)},
     }
+    exposure, lines = card_lines(conn, company, card, row)
+    card["exposure"].update(exposure)
+    card["lines"] = lines
     top_tier = max((r["tier"] for r in requests), key=lambda t: TIER_ORDER.get(t, 0), default="Minimum utility")
     return {"card": card, "requests": requests, "actions": actions_for(top_tier, opt_out is not None),
             "california": db.get_setting(conn, "california", "0") == "1"}
+
+
+SENSITIVE_GROUPS = {
+    "Medical Health": "health", "Healthy Living": "health", "Personal Finance": "finance",
+    "Religion & Spirituality": "religion", "Sexuality": "sexuality", "Dating": "dating",
+}
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def card_lines(conn, company: str, card: dict, research_row) -> tuple[dict, list[dict]]:
+    """Profile card lines, each labelled measured (your traffic) or inferred (research or
+    inference from what it saw). Every inferred line cites its source."""
+    since = _since(conn)
+    all_sites = {r[0] for r in conn.execute(
+        "SELECT DISTINCT page_site FROM requests WHERE page_site IS NOT NULL AND captured_at > ?", (since,))}
+    site_topics: dict[str, str] = {}
+    ids: set[str] = set()
+    apps: set[str] = set()
+    for site, topic, flags, app in conn.execute(
+        "SELECT r.page_site, f.topic, f.flags, r.app_name FROM requests r JOIN findings f ON f.request_id = r.id "
+        "WHERE f.company = ? AND r.captured_at > ?", (company, since)):
+        if site:
+            site_topics.setdefault(site, topic)
+        if app:
+            apps.add(app)
+        for fl in json.loads(flags or "[]"):
+            if fl.get("flag") == "tracking_id" and fl.get("hmac"):
+                ids.add(fl["hmac"])
+
+    lines: list[dict] = []
+    share = len(site_topics) / len(all_sites) if all_sites else 0.0
+    if site_topics:
+        groups = Counter(SENSITIVE_GROUPS[t] for t in site_topics.values() if t in SENSITIVE_GROUPS)
+        extra = ""
+        if groups:
+            name, n = groups.most_common(1)[0]
+            extra = f", including {_plural(n, name + ' page')}"
+        lines.append({"kind": "measured", "source": None, "text":
+                      f"Present on {len(site_topics)} of the {_plural(len(all_sites), 'site')} you visited "
+                      f"({round(share * 100)}%){extra}."})
+    if ids:
+        lines.append({"kind": "measured", "source": None, "text": f"Holds {_plural(len(ids), 'identifier')} for you."})
+    if apps:
+        lines.append({"kind": "measured", "source": None, "text": f"Contacted from {', '.join(sorted(apps))}."})
+
+    # Inferences from what it saw, phrased as possibilities (original plan: no overstating).
+    for topic, n in Counter(site_topics.values()).most_common(3):
+        if topic and topic != "Uncategorized":
+            lines.append({"kind": "inferred", "source": "Pages it saw on this computer",
+                          "text": f"It could infer an interest in {topic} from {_plural(n, 'page')} it saw."})
+
+    if research_row:
+        summary, broker, _opt, news, sources = research_row[0], research_row[1], research_row[2], research_row[3], research_row[4]
+        srcs = json.loads(sources or "[]")
+        policy_src = (research_row[7] if len(research_row) > 7 else None) or (srcs[0] if srcs else None)
+        broker_src = (research_row[8] if len(research_row) > 8 else None) or policy_src
+        if summary and policy_src:
+            lines.append({"kind": "inferred", "source": policy_src, "text": summary})
+        if broker and broker_src:
+            lines.append({"kind": "inferred", "source": broker_src, "text": "Registered data broker."})
+        for item in json.loads(news or "[]"):
+            if srcs:
+                lines.append({"kind": "inferred", "source": srcs[-1], "text": item})
+    return {"site_share": share, "sites_seen": len(site_topics), "sites_total": len(all_sites),
+            "identifiers": len(ids)}, lines
 
 
 LETTER = """[This is a template, not legal advice. Check which laws apply to you before sending.]

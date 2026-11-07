@@ -157,7 +157,18 @@ export interface CompanyDetail {
     sources: string[];
     researched_at: number | null;
     from_snapshot: boolean | null;
-    exposure: { requests: number; apps: Record<string, number>; topics: Record<string, number>; flags: Record<string, number> };
+    exposure: {
+      requests: number;
+      apps: Record<string, number>;
+      topics: Record<string, number>;
+      flags: Record<string, number>;
+      site_share: number;
+      sites_seen: number;
+      sites_total: number;
+      identifiers: number;
+    };
+    /** Original plan: every line is measured (your traffic) or inferred (cited). */
+    lines: { kind: "measured" | "inferred"; text: string; source: string | null }[];
   };
   requests: RequestRow[];
   actions: ActionName[];

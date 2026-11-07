@@ -119,3 +119,41 @@ def test_block_and_strip_do_not_change_track_decisions(conn):
 def test_gpc_setting_reaches_recorder(conn):
     call(conn, "set_setting", {"key": "gpc", "value": True})
     assert rules.RuleBook(conn, reload_seconds=0).snapshot().gpc is True
+
+
+# ------------------------------------------------- profile card (original plan)
+
+def _site_req(conn, rid, company, site, topic, h=None):
+    conn.execute("INSERT INTO requests (id, captured_at, app_name, page_site, dest_domain, analyzed) "
+                 "VALUES (?, 2000, 'Chrome', ?, ?, 1)", (rid, site, "x.criteo.com" if company else site))
+    flags = [{"flag": "tracking_id", "where": "c", "hmac": h}] if h else []
+    conn.execute("INSERT INTO findings (request_id, company, category, flags, topic, summary) VALUES (?, ?, ?, ?, ?, 's')",
+                 (rid, company, "Advertising" if company else "First party", json.dumps(flags), topic))
+    conn.execute("INSERT INTO scores (request_id, score, tier, breakdown) VALUES (?, 50, 'Profile building', '[]')", (rid,))
+
+
+def test_card_lines_measured_and_inferred_with_citations(conn):
+    _site_req(conn, 1, "Criteo", "clinic.example", "Medical Health", "id1")
+    _site_req(conn, 2, "Criteo", "news.example", "News and Politics", "id2")
+    _site_req(conn, 3, None, "recipes.example", "Food & Drink")
+    conn.execute("INSERT INTO companies (name, policy_summary, is_data_broker, opt_out_url, news, sources, from_snapshot) "
+                 "VALUES ('Criteo', 'Collects browsing data for ads.', 1, NULL, '[\"Fined by CNIL in 2023\"]', "
+                 "'[\"https://www.criteo.com/privacy/\"]', 0)")
+    card = call(conn, "company_detail", {"company": "Criteo"})["card"]
+    lines = card["lines"]
+    measured = [l["text"] for l in lines if l["kind"] == "measured"]
+    inferred = [l for l in lines if l["kind"] == "inferred"]
+    assert "Present on 2 of the 3 sites you visited (67%), including 1 health page." in measured
+    assert "Holds 2 identifiers for you." in measured
+    assert any("could infer an interest in Medical Health" in l["text"] for l in inferred)
+    assert all(l["source"] for l in inferred)  # every inferred line cites its source
+    assert any(l["text"].startswith("Registered data broker") for l in inferred)
+    assert any(l["text"] == "Collects browsing data for ads." and l["source"] == "https://www.criteo.com/privacy/"
+               for l in inferred)
+    assert card["exposure"]["site_share"] == pytest.approx(2 / 3)
+
+
+def test_card_without_research_has_no_uncited_inferred_lines(conn):
+    _site_req(conn, 1, "Criteo", "a.example", "Shopping", "id1")
+    lines = call(conn, "company_detail", {"company": "Criteo"})["card"]["lines"]
+    assert all(l["kind"] == "measured" or l["source"] for l in lines)
