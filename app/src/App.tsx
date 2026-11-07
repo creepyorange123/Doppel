@@ -3,11 +3,13 @@ import type { AnalyzeResult, ProgressEvent, StatusResult } from "./shared/protoc
 import { recorderHealth } from "./lib/health";
 import { Consent } from "./screens/Consent";
 import { AppList } from "./screens/AppList";
+import { Report } from "./screens/Report";
+import { Settings } from "./screens/Settings";
 
 // Captured text is always rendered as React text nodes, never as HTML
 // (security checklist #5). Do not use dangerouslySetInnerHTML anywhere.
 
-type Tab = "overview" | "apps";
+type Tab = "report" | "overview" | "apps" | "settings";
 
 function formatTime(ms: number | null): string {
   return ms === null ? "never" : new Date(ms).toLocaleString();
@@ -16,7 +18,7 @@ function formatTime(ms: number | null): string {
 export function App() {
   const [status, setStatus] = useState<StatusResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>("report");
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [lastRun, setLastRun] = useState<AnalyzeResult | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -72,12 +74,11 @@ export function App() {
         </div>
         {consented && (
           <nav className="row">
-            <button className={tab === "overview" ? "tab active" : "tab"} onClick={() => setTab("overview")}>
-              Overview
-            </button>
-            <button className={tab === "apps" ? "tab active" : "tab"} onClick={() => setTab("apps")}>
-              Apps
-            </button>
+            {(["report", "overview", "apps", "settings"] as Tab[]).map((t) => (
+              <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
+                {{ report: "Report", overview: "Status", apps: "Apps", settings: "Settings" }[t]}
+              </button>
+            ))}
           </nav>
         )}
       </header>
@@ -103,7 +104,9 @@ export function App() {
           <dd>{formatTime(status.recorder_heartbeat_at)}</dd>
         </dl>
       )}
+      {consented && tab === "report" && !analyzing && lastRun && <Report />}
       {consented && tab === "apps" && <AppList />}
+      {consented && tab === "settings" && <Settings />}
     </main>
   );
 }

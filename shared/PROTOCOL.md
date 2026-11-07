@@ -47,13 +47,21 @@ Analyzer → app (event, not tied to a request; no `id`):
 | `set_tracking_mode` | `{mode: "blocklist"\|"allowlist"}` | `{ok}` |
 | `delete_app_data` | `{key}` | `{deleted}` |
 
+| `analyze_since_last_open` | `{}` | `{analyzed, since, finished_at}`; streams `progress` events |
+| `get_settings` | `{}` | `{zero_network, gpc, local_ai, california, tracking_mode}` |
+| `set_setting` | `{key: zero_network\|gpc\|local_ai\|california, value: bool}` | `{ok}` |
+| `ledger_verify` | `{}` | `{ok, entries, broken_at, latest_hash}` |
+| `ledger_list` | `{}` | `{entries: [{id, sent_at, destination, payload, hash}], latest_hash}` |
+| `report` | `{}` | `{summary: {since, requests, companies, high_concern}, companies: [...]}` |
+| `company_detail` | `{company}` | `{card, requests: [{..., score, tier, breakdown}], actions, california}` |
+| `take_action` | `{company, action: block\|strip\|opt-out\|letter}` | `{ok, letter?, domains?}` |
+| `undo_action` | `{company, action: block\|strip}` | `{ok}` |
+
 Recorder controls (`install`, `uninstall`, `status`) are not analyzer messages: the
 main process runs `python -m recorder <action>` itself, on the `shadow:recorder` channel.
 
-Later phases add: `analyze_since_last_open` (phase 2), `list_rules` / `set_rule`
-(phase 1 app list), `list_companies`, `take_action` (phase 6). Every new type is added
-to `shared/protocol.py`, `app/src/shared/protocol.ts` and the main process allowlist
-together.
+Every new type is added to `shared/protocol.py`, `app/src/shared/protocol.ts` (which is
+the main process allowlist) and `analyzer/handlers.py` together.
 
 Both sides treat captured text as untrusted data: the renderer never renders it as
 HTML (security checklist #5).

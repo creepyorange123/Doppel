@@ -14,6 +14,16 @@ export const REQUEST_TYPES = [
   "delete_app_data",
   // Phase 2
   "analyze_since_last_open",
+  // Phase 5
+  "get_settings",
+  "set_setting",
+  "ledger_verify",
+  "ledger_list",
+  // Phase 6
+  "report",
+  "company_detail",
+  "take_action",
+  "undo_action",
 ] as const;
 export type RequestType = (typeof REQUEST_TYPES)[number];
 
@@ -61,6 +71,97 @@ export interface ResultMap {
   set_tracking_mode: Ok;
   delete_app_data: { deleted: number };
   analyze_since_last_open: AnalyzeResult;
+  get_settings: Settings;
+  set_setting: Ok;
+  ledger_verify: LedgerVerify;
+  ledger_list: { entries: LedgerEntry[]; latest_hash: string };
+  report: Report;
+  company_detail: CompanyDetail;
+  take_action: { ok: true; letter?: string; domains?: string[] };
+  undo_action: Ok;
+}
+
+export type Tier = "Low" | "Moderate" | "Profile-building" | "High concern";
+export type ActionName = "block" | "strip" | "opt-out" | "letter";
+
+export interface Settings {
+  zero_network: boolean;
+  gpc: boolean;
+  local_ai: boolean;
+  california: boolean;
+  tracking_mode: "blocklist" | "allowlist";
+}
+
+export interface LedgerVerify {
+  ok: boolean;
+  entries: number;
+  broken_at: number | null;
+  latest_hash: string;
+}
+
+export interface LedgerEntry {
+  id: number;
+  sent_at: number;
+  destination: string;
+  payload: Record<string, unknown>;
+  hash: string;
+}
+
+export interface ReportSummary {
+  since: number;
+  requests: number;
+  companies: number;
+  high_concern: number;
+}
+
+export interface CompanyRow {
+  name: string;
+  category: string | null;
+  max_score: number;
+  tier: Tier;
+  apps: string[];
+  requests: number;
+  actions_taken: ActionName[];
+}
+
+export interface Report {
+  summary: ReportSummary;
+  companies: CompanyRow[];
+}
+
+export interface BreakdownItem {
+  signal: string;
+  label: string;
+  points: number;
+}
+
+export interface RequestRow {
+  id: number;
+  captured_at: number;
+  app_name: string | null;
+  dest_domain: string;
+  summary: string;
+  score: number;
+  tier: Tier;
+  breakdown: BreakdownItem[];
+}
+
+export interface CompanyDetail {
+  card: {
+    name: string;
+    policy_summary: string | null;
+    is_data_broker: boolean | null;
+    opt_out_url: string | null;
+    opt_out_domain: string | null;
+    news: string[];
+    sources: string[];
+    researched_at: number | null;
+    from_snapshot: boolean | null;
+    exposure: { requests: number; apps: Record<string, number>; topics: Record<string, number>; flags: Record<string, number> };
+  };
+  requests: RequestRow[];
+  actions: ActionName[];
+  california: boolean;
 }
 
 export interface AnalyzeResult {
