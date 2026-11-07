@@ -13,7 +13,7 @@ from analyzer.research.summarize import safe_opt_out
 from shared import db
 from shared.protocol import ProtocolError
 
-TIER_ORDER = {"Low": 0, "Moderate": 1, "Profile-building": 2, "High concern": 3}
+TIER_ORDER = {"Minimum utility": 0, "Measurement": 1, "Profile building": 2, "High concern": 3}
 ACTIONS = ("block", "strip", "opt-out", "letter")
 RULE_ACTIONS = ("block", "strip")  # written into the recorder's rules
 
@@ -24,9 +24,14 @@ def _since(conn) -> int:
 
 
 def actions_for(tier: str, has_opt_out: bool) -> list[str]:
+    """Original plan defaults: Minimum utility = leave alone; Measurement = show, optionally
+    block; Profile building = recommend blocking; High concern = block and flag."""
     out = []
-    if TIER_ORDER.get(tier, 0) >= TIER_ORDER["Profile-building"]:
-        out += ["block", "strip"]
+    level = TIER_ORDER.get(tier, 0)
+    if level >= TIER_ORDER["Measurement"]:
+        out.append("block")
+    if level >= TIER_ORDER["Profile building"]:
+        out.append("strip")
     if has_opt_out:
         out.append("opt-out")
     out.append("letter")
@@ -49,7 +54,7 @@ def report(conn, payload) -> dict:
         counts[tier] = counts.get(tier, 0) + 1
         if not company:
             continue
-        c = companies.setdefault(company, {"name": company, "category": category, "max_score": 0, "tier": "Low",
+        c = companies.setdefault(company, {"name": company, "category": category, "max_score": 0, "tier": "Minimum utility",
                                            "apps": set(), "requests": 0})
         c["requests"] += 1
         if app:
@@ -146,12 +151,14 @@ def company_detail(conn, payload) -> dict:
         "from_snapshot": bool(row[6]) if row else None,
         "exposure": {"requests": len(requests), "apps": dict(apps), "topics": dict(topics_), "flags": dict(flags)},
     }
-    top_tier = max((r["tier"] for r in requests), key=lambda t: TIER_ORDER.get(t, 0), default="Low")
+    top_tier = max((r["tier"] for r in requests), key=lambda t: TIER_ORDER.get(t, 0), default="Minimum utility")
     return {"card": card, "requests": requests, "actions": actions_for(top_tier, opt_out is not None),
             "california": db.get_setting(conn, "california", "0") == "1"}
 
 
-LETTER = """Subject: Request to access my personal data
+LETTER = """[This is a template, not legal advice. Check which laws apply to you before sending.]
+
+Subject: Request to access my personal data
 
 To {company}'s privacy team,
 

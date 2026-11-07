@@ -83,7 +83,7 @@ export interface ResultMap {
   list_requests: { requests: RequestListItem[]; truncated: boolean };
 }
 
-export type Tier = "Low" | "Moderate" | "Profile-building" | "High concern";
+export type Tier = "Minimum utility" | "Measurement" | "Profile building" | "High concern";
 export type ActionName = "block" | "strip" | "opt-out" | "letter";
 
 export interface Settings {

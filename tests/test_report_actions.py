@@ -39,9 +39,9 @@ def call(conn, t, p=None):
 
 def test_summary_and_ranking(conn):
     add(conn, 1, "Criteo", "Advertising", 80, "High concern", app="Chrome")
-    add(conn, 2, "Criteo", "Advertising", 40, "Moderate", app="Spotify")
-    add(conn, 3, "Hotjar", "Session Replay", 30, "Moderate", dest="script.hotjar.com")
-    add(conn, 4, None, "First party", 0, "Low", dest="news.example")
+    add(conn, 2, "Criteo", "Advertising", 40, "Measurement", app="Spotify")
+    add(conn, 3, "Hotjar", "Session Replay", 30, "Measurement", dest="script.hotjar.com")
+    add(conn, 4, None, "First party", 0, "Minimum utility", dest="news.example")
     add(conn, 5, "Hotjar", "Session Replay", 99, "High concern", dest="script.hotjar.com", at=500)  # before window
     r = call(conn, "report")
     assert r["summary"] == {"since": 1000, "requests": 4, "companies": 2, "high_concern": 1}
@@ -71,8 +71,10 @@ def test_opt_out_link_off_domain_is_hidden(conn):
 
 def test_actions_offered_by_tier(conn):
     assert set(report.actions_for("High concern", has_opt_out=True)) == {"block", "strip", "opt-out", "letter"}
-    assert set(report.actions_for("Profile-building", has_opt_out=False)) == {"block", "strip", "letter"}
-    assert set(report.actions_for("Low", has_opt_out=False)) == {"letter"}
+    assert set(report.actions_for("Profile building", has_opt_out=False)) == {"block", "strip", "letter"}
+    # Original plan: Measurement = "show, optionally block"; Minimum utility = "leave alone".
+    assert set(report.actions_for("Measurement", has_opt_out=False)) == {"block", "letter"}
+    assert set(report.actions_for("Minimum utility", has_opt_out=False)) == {"letter"}
 
 
 # ---------------------------------------------------------------------- actions
@@ -89,7 +91,7 @@ def test_block_writes_recorder_rules_for_all_company_domains(conn):
 
 
 def test_strip_rule_and_undo(conn):
-    add(conn, 1, "Hotjar", "Session Replay", 60, "Profile-building", dest="script.hotjar.com")
+    add(conn, 1, "Hotjar", "Session Replay", 60, "Profile building", dest="script.hotjar.com")
     call(conn, "take_action", {"company": "Hotjar", "action": "strip"})
     assert rules.RuleBook(conn, reload_seconds=0).snapshot().stripped("vars.hotjar.com")
     call(conn, "undo_action", {"company": "Hotjar", "action": "strip"})
@@ -99,6 +101,7 @@ def test_strip_rule_and_undo(conn):
 def test_letter_is_generated_locally(conn):
     out = call(conn, "take_action", {"company": "Criteo", "action": "letter"})
     assert "Criteo" in out["letter"] and "access" in out["letter"].lower()
+    assert "not legal advice" in out["letter"]
 
 
 @pytest.mark.parametrize("p", [{"company": "Nope", "action": "block"}, {"company": "Criteo", "action": "nuke"}, {}])

@@ -25,15 +25,17 @@ IAB_TIER1 = (
     "Hobbies & Interests", "Home & Garden", "Medical Health", "Movies", "Music and Audio",
     "News and Politics", "Personal Finance", "Pets", "Pop Culture", "Real Estate",
     "Religion & Spirituality", "Science", "Shopping", "Sports", "Style & Fashion",
-    "Technology & Computing", "Television", "Travel", "Video Gaming", "Uncategorized",
+    "Technology & Computing", "Television", "Travel", "Video Gaming", "Sexuality", "Uncategorized",
 )
 
 # Topics that multiply the score in phase 4.
+# Original plan: health, finance, religion, sexuality; step-by-step plan adds dating apps.
 SENSITIVE_TOPICS = frozenset({"Medical Health", "Healthy Living", "Personal Finance", "Dating",
-                              "Religion & Spirituality"})
+                              "Religion & Spirituality", "Sexuality"})
 
 # Ordered: the first matching rule wins.
 KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("Sexuality", ("lgbt", "queer", "lesbian", "transgender", "sexual-health", "sexuality", "/gay")),
     ("Dating", ("dating", "tinder", "bumble", "hinge", "okcupid", "grindr", "match.com")),
     ("Medical Health", ("symptom", "diagnos", "clinic", "hospital", "pharma", "prescription", "disease",
                         "diabetes", "cancer", "therapy", "mental-health", "depression", "pregnan", "webmd",
