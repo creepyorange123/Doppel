@@ -75,6 +75,17 @@ CREATE TABLE IF NOT EXISTS topic_cache (
     created_at  INTEGER NOT NULL
 );
 
+-- Every sighting of a tracking ID (keyed hash only), across all history, so
+-- cross-site IDs and cookie syncing are caught even if first seen last week.
+CREATE TABLE IF NOT EXISTS id_sightings (
+    hmac        TEXT NOT NULL,
+    company     TEXT NOT NULL,
+    context     TEXT NOT NULL,          -- page site or app name
+    first_seen  INTEGER NOT NULL,
+    last_seen   INTEGER NOT NULL,
+    PRIMARY KEY (hmac, company, context)
+);
+
 CREATE TABLE IF NOT EXISTS scores (
     request_id  INTEGER PRIMARY KEY REFERENCES requests (id) ON DELETE CASCADE,
     score       INTEGER NOT NULL CHECK (score BETWEEN 0 AND 100),

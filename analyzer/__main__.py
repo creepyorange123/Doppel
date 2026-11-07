@@ -27,7 +27,7 @@ def main() -> int:
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     conn = db.open_db()
-    pipeline.STEPS[:] = setup.build_steps(conn)
+    pipeline.STEPS[:], pipeline.SCORE_STEPS[:] = setup.build_steps(conn)
     emit("ready", {"version": protocol.PROTOCOL_VERSION})
     for line in sys.stdin:
         line = line.strip()

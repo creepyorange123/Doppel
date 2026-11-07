@@ -34,7 +34,10 @@ def _basic_finding(conn, row: dict) -> None:
     )
 
 
+# Stage 1 (identify, record ID sightings) runs over every new request before
+# stage 2 (score), so cross-site checks see the whole batch.
 STEPS: list[Step] = [_basic_finding]
+SCORE_STEPS: list[Step] = []
 
 
 def since_label(count: int, since_ms: int) -> str:
@@ -67,18 +70,24 @@ def analyze_since_last_open(conn, payload: dict, emit: Callable[[str, dict], Non
     label = since_label(total, since)
     emit("progress", {"done": 0, "total": total, "label": label})
 
-    for start in range(0, total, BATCH):
-        chunk = ids[start:start + BATCH]
-        conn.execute("BEGIN")
-        try:
-            for row in _rows(conn, chunk):
-                for step in STEPS:
-                    step(conn, row)
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
-        emit("progress", {"done": min(start + BATCH, total), "total": total, "label": label})
+    stages = [s for s in (STEPS, SCORE_STEPS) if s]
+    work = total * len(stages)
+    done = 0
+    for steps in stages:
+        for start in range(0, total, BATCH):
+            chunk = ids[start:start + BATCH]
+            conn.execute("BEGIN")
+            try:
+                for row in _rows(conn, chunk):
+                    for step in steps:
+                        step(conn, row)
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            done += len(chunk)
+            # Report in requests, not request-stages.
+            emit("progress", {"done": done * total // max(work, 1), "total": total, "label": label})
 
     conn.execute("BEGIN")
     try:
