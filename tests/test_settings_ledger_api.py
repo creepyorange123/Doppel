@@ -17,7 +17,7 @@ def call(conn, t, p=None):
 
 def test_settings_round_trip(conn):
     s = call(conn, "get_settings")
-    assert s == {"zero_network": False, "gpc": False, "local_ai": False, "tracking_mode": "blocklist"}
+    assert s == {"zero_network": False, "gpc": False, "local_ai": False, "california": False, "tracking_mode": "blocklist"}
     call(conn, "set_setting", {"key": "zero_network", "value": True})
     assert call(conn, "get_settings")["zero_network"] is True
 

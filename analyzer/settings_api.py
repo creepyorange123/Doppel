@@ -6,7 +6,7 @@ from analyzer.research import ledger
 from shared import db
 from shared.protocol import ProtocolError
 
-TOGGLES = ("zero_network", "gpc", "local_ai")
+TOGGLES = ("zero_network", "gpc", "local_ai", "california")
 
 
 def get_settings(conn, payload) -> dict:

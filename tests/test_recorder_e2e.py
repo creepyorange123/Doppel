@@ -57,8 +57,12 @@ def leaf_for(ca_key, ca_cert, host="localhost"):
     return key, cert
 
 
+RECEIVED: list[dict] = []  # what the upstream server actually saw
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def _ok(self):
+        RECEIVED.append({"path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()}})
         length = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(length)
         self.send_response(200)
@@ -240,3 +244,42 @@ def test_metadata_only_rule_keeps_domain_and_nothing_else(env):
     conn = stop_and_read(env)
     rows = conn.execute("SELECT dest_domain, url, headers, cookies, body, metadata_only FROM requests").fetchall()
     assert rows == [("localhost", None, None, None, None, 1)]
+
+
+def _set_rule_and_wait(env, sql, params=()):
+    conn = db.connect(env["db_path"], env["db_key"])
+    conn.execute(sql, params)
+    time.sleep(2.5)  # rules reload within seconds
+    RECEIVED.clear()
+
+
+def test_blocked_company_never_reaches_server(env):
+    _set_rule_and_wait(env, "INSERT INTO app_rules (kind, match, rule, updated_at) VALUES ('action', 'localhost', 'block', 1)")
+    port = env["good"].server_address[1]
+    resp = env["opener"].open(f"https://localhost:{port}/pixel?uid=a8F3kLq92xZpQ7mN4vB1", timeout=10)
+    assert resp.status == 204
+    time.sleep(1.5)
+    assert RECEIVED == []
+    conn = stop_and_read(env)
+    rows = conn.execute("SELECT url, metadata_only, flags FROM requests").fetchall()
+    assert len(rows) == 1 and rows[0][0] is None and rows[0][1] == 1
+    assert json.loads(rows[0][2])[0]["flag"] == "blocked_by_you"
+
+
+def test_strip_removes_cookies_and_ids_before_sending(env):
+    _set_rule_and_wait(env, "INSERT INTO app_rules (kind, match, rule, updated_at) VALUES ('action', 'localhost', 'strip', 1)")
+    port = env["good"].server_address[1]
+    r = urllib.request.Request(f"https://localhost:{port}/c?uid=a8F3kLq92xZpQ7mN4vB1&page=2",
+                               headers={"Cookie": f"sid={SESSION}"})
+    assert env["opener"].open(r, timeout=10).read() == b"ok"
+    seen = RECEIVED[-1]
+    assert "cookie" not in seen["headers"]
+    assert "a8F3kLq92xZpQ7mN4vB1" not in seen["path"] and "page=2" in seen["path"]
+
+
+def test_gpc_header_added(env):
+    _set_rule_and_wait(env, "INSERT INTO settings (key, value, updated_at) VALUES ('gpc', '1', 1) "
+                            "ON CONFLICT(key) DO UPDATE SET value='1'")
+    port = env["good"].server_address[1]
+    env["opener"].open(f"https://localhost:{port}/x", timeout=10).read()
+    assert RECEIVED[-1]["headers"].get("sec-gpc") == "1"

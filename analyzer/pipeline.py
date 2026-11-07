@@ -97,6 +97,7 @@ def analyze_since_last_open(conn, payload: dict, emit: Callable[[str, dict], Non
             sets = ", ".join(f"{c} = NULL" for c in RAW_COLUMNS)
             conn.execute(f"UPDATE requests SET analyzed = 1, {sets} WHERE id IN ({marks})", chunk)
         db.set_setting(conn, "last_opened_at", str(started))
+        db.set_setting(conn, "last_run_since", str(since))  # the report's window
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")

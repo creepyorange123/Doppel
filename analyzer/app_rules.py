@@ -41,6 +41,8 @@ def list_apps(conn) -> dict:
         entry["running"] = True
     domains = []
     for kind, match, rule, source in conn.execute("SELECT kind, match, rule, source FROM app_rules ORDER BY match"):
+        if kind == "action":
+            continue  # block/strip actions are shown on the report screen
         if kind == "app":
             entry = apps.setdefault(match, {"key": match, "path": match, "name": rules.app_display_name(match),
                                             "requests": 0, "last_seen_at": None, "running": False})

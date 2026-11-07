@@ -22,9 +22,11 @@ CREATE TABLE IF NOT EXISTS settings (
 -- seconds without a restart.
 CREATE TABLE IF NOT EXISTS app_rules (
     id          INTEGER PRIMARY KEY,
-    kind        TEXT NOT NULL CHECK (kind IN ('app', 'domain')),
+    kind        TEXT NOT NULL CHECK (kind IN ('app', 'domain', 'action')),
     match       TEXT NOT NULL,          -- app path/name, or a domain
-    rule        TEXT NOT NULL CHECK (rule IN ('track', 'metadata_only', 'dont_track')),
+    -- app/domain: track | metadata_only | dont_track
+    -- action (phase 6, per domain, applies across apps): block | strip
+    rule        TEXT NOT NULL CHECK (rule IN ('track', 'metadata_only', 'dont_track', 'block', 'strip')),
     source      TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user', 'auto')),
                                         -- 'auto': set by the recorder (e.g. certificate pinning)
     updated_at  INTEGER NOT NULL,

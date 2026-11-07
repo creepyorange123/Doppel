@@ -149,7 +149,12 @@ class ShadowRecorder:
         if decision == rules.TRACK and not self.ca_ready:
             decision = rules.METADATA_ONLY
         self.decisions[client.id] = decision
+        snap = self.rules.snapshot()
         if decision == rules.TRACK:
+            return
+        if self.ca_ready and (snap.blocked(sni) or snap.stripped(sni)):
+            # Decrypt only to enforce your block/strip choice; content is still
+            # not stored beyond what this app's rule allows.
             return
         # Not decrypted: the connection passes through untouched.
         data.ignore_connection = True
@@ -187,6 +192,28 @@ class ShadowRecorder:
                 self.metadata_row(flow.client_conn, str(addr[0]), [{"flag": "quic_blocked", "where": "udp"}])
             flow.kill()
 
+    def request(self, flow: http.HTTPFlow) -> None:
+        """Phase 6 actions, applied before anything is sent upstream."""
+        host = (flow.request.pretty_host or "").lower()
+        snap = self.rules.snapshot()
+        if snap.blocked(host):
+            flow.metadata["shadow_blocked"] = True
+            flow.response = http.Response.make(204)
+            return
+        if snap.stripped(host):
+            flow.metadata["shadow_stripped"] = True
+            flow.request.headers.pop("cookie", None)
+            for name in list(flow.request.headers.keys()):
+                if sanitize.SENSITIVE_HEADER_RE.search(name) and name.lower() not in ("authorization",):
+                    flow.request.headers.pop(name, None)
+            q = flow.request.query
+            for key in list(q.keys()):
+                value = q.get(key, "")
+                if sanitize.looks_like_id(value) or sanitize.HEX_HASH_RE.match(value) or sanitize.EMAIL_RE.match(value):
+                    del q[key]
+        if snap.gpc:
+            flow.request.headers["Sec-GPC"] = "1"
+
     def response(self, flow: http.HTTPFlow) -> None:
         self._record(flow)
 
@@ -211,6 +238,9 @@ class ShadowRecorder:
             return
         if sanitize.is_search_suggestion(host, req.path):
             return
+        if flow.metadata.get("shadow_blocked"):
+            self.metadata_row(client, host, [{"flag": "blocked_by_you", "where": "recorder"}])
+            return
 
         size = len(req.raw_content or b"") + (len(flow.response.raw_content or b"") if flow.response else 0)
         if decision == rules.METADATA_ONLY:
@@ -233,6 +263,8 @@ class ShadowRecorder:
             return
         if not self.rules.snapshot().store_bodies:
             stored.body = None
+        if flow.metadata.get("shadow_stripped"):
+            stored.flags.append({"flag": "identifiers_stripped", "where": "recorder"})
 
         app = self.app_for(client)
         self.writer.put({
