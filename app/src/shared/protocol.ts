@@ -81,7 +81,7 @@ export interface ResultMap {
   undo_action: Ok;
 }
 
-export type Tier = "Low" | "Moderate" | "Profile-building" | "High concern";
+export type Tier = "Minimum utility" | "Measurement" | "Profile building" | "High concern";
 export type ActionName = "block" | "strip" | "opt-out" | "letter";
 
 export interface Settings {
