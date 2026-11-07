@@ -7,7 +7,7 @@ import { Report } from "./screens/Report";
 import { Settings } from "./screens/Settings";
 
 // Captured text is always rendered as React text nodes, never as HTML
-// (security checklist #5). Do not use dangerouslySetInnerHTML anywhere.
+// (security checklist #5). Never inject raw HTML anywhere; tests/test_security_static.py checks this.
 
 type Tab = "report" | "overview" | "apps" | "settings";
 

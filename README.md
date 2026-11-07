@@ -46,3 +46,42 @@ cd app && npm ci && npm start                       # opens the empty app window
 
 `npm run smoke` builds the app, opens the window, prints what it shows, and quits.
 Set `SHADOW_DATA_DIR` to use a throwaway data folder during development.
+
+## Running it for real
+
+```bash
+.venv/Scripts/python -m recorder install      # consent, CA into your user trust store, login task
+.venv/Scripts/python -m recorder status
+.venv/Scripts/python -m recorder run          # what the login task runs (UAC prompt for the capture driver)
+.venv/Scripts/python -m recorder run --fallback-proxy 8899   # if local capture fails: set system proxy to 127.0.0.1:8899
+.venv/Scripts/python -m recorder uninstall [--wipe]
+```
+
+The app's consent screen runs `install` for you. Research (optional, Phase 5):
+
+```bash
+.venv/Scripts/python -m analyzer.research set-key tavily
+.venv/Scripts/python -m analyzer.research set-key exa
+.venv/Scripts/python -m analyzer.research refresh --top 50
+```
+
+Hand checks: `python -m analyzer.review export --n 100 labels.csv`, label the
+`human_tier` column, then `python -m analyzer.review report labels.csv`.
+
+Demo: `pip install -r requirements-demo.txt`, `python -m playwright install chromium`,
+`python -m demo.persona` the night before; `python scripts/predemo_check.py` before
+judging, and `--after-uninstall` after uninstalling. OS firewall rules:
+`scripts/firewall/` (review, then apply yourself).
+
+## Known gaps
+
+- Packaging (electron-builder + PyInstaller, signed binaries in a non-user-writable
+  folder) is not set up; in development the login task runs the venv's Python, and
+  `recorder status` reports it as user-writable.
+- Windows local capture starts mitmproxy's own elevated redirector (UAC prompt at login);
+  parsing stays in the unprivileged recorder process.
+- The bundled tracker map is a curated ~120-domain subset; rebuild from Tracker Radar
+  with `scripts/build_tracker_db.py`. The bundled research snapshot is signed but empty
+  until a pre-fetch run is signed for release.
+- Windows Firewall cannot restrict one program to specific HTTPS hosts; the egress gate
+  and ledger enforce that, see `scripts/firewall/windows-firewall.ps1`.
