@@ -1,0 +1,16 @@
+:root {
+  --bg: #111316;
+  --fg: #e8e9eb;
+  --muted: #9097a0;
+  --error: #ff8a80;
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+body { margin: 0; background: var(--bg); color: var(--fg); }
+.shell { max-width: 760px; margin: 0 auto; padding: 48px 24px; }
+h1 { margin: 0 0 4px; font-size: 28px; }
+.muted { color: var(--muted); }
+.error { color: var(--error); }
+.status { display: grid; grid-template-columns: max-content 1fr; gap: 8px 24px; margin-top: 32px; }
+.status dt { color: var(--muted); }
+.status dd { margin: 0; font-variant-numeric: tabular-nums; }
