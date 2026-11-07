@@ -1,0 +1,13 @@
+{
+  "name": "Shadow Profile",
+  "description": "Shadow Profile may reach only localhost; its research agent only Tavily and Exa. Import into Little Snitch (or LuLu via its rules import). Delete the research rules for zero-network mode.",
+  "rules": [
+    { "process": "/Applications/Shadow Profile.app/Contents/MacOS/Shadow Profile", "remote-addresses": "127.0.0.1, ::1", "action": "allow", "notes": "App window: loopback only" },
+    { "process": "/Applications/Shadow Profile.app/Contents/MacOS/Shadow Profile", "remote": "any", "action": "deny" },
+    { "process": "/Applications/Shadow Profile.app/Contents/Resources/analyzer/analyzer", "remote-addresses": "127.0.0.1, ::1", "action": "allow", "notes": "Analyzer and local model: loopback only" },
+    { "process": "/Applications/Shadow Profile.app/Contents/Resources/analyzer/analyzer", "remote": "any", "action": "deny" },
+    { "process": "/Applications/Shadow Profile.app/Contents/Resources/research/research", "remote-hosts": "api.tavily.com", "ports": "443", "protocol": "tcp", "action": "allow" },
+    { "process": "/Applications/Shadow Profile.app/Contents/Resources/research/research", "remote-hosts": "api.exa.ai", "ports": "443", "protocol": "tcp", "action": "allow" },
+    { "process": "/Applications/Shadow Profile.app/Contents/Resources/research/research", "remote": "any", "action": "deny" }
+  ]
+}

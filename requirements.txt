@@ -1,0 +1,6 @@
+# Pinned exact versions (security checklist #10: pin npm and pip versions).
+# Install with: pip install --require-hashes is the goal for release builds;
+# during the hackathon we pin exact versions.
+mitmproxy==12.3.1
+keyring==25.7.0
+sqlcipher3-wheels==0.5.7
