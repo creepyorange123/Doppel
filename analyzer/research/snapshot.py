@@ -63,14 +63,15 @@ def import_into(conn, data: dict) -> int:
     n = 0
     for name, c in (data.get("companies") or {}).items():
         conn.execute(
-            "INSERT INTO companies (name, policy_summary, is_data_broker, opt_out_url, news, sources, researched_at, from_snapshot) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 1) "
+            "INSERT INTO companies (name, policy_summary, is_data_broker, opt_out_url, news, sources, policy_source, "
+            "broker_source, researched_at, from_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1) "
             "ON CONFLICT(name) DO UPDATE SET policy_summary=excluded.policy_summary, is_data_broker=excluded.is_data_broker, "
             "opt_out_url=excluded.opt_out_url, news=excluded.news, sources=excluded.sources, "
+            "policy_source=excluded.policy_source, broker_source=excluded.broker_source, "
             "researched_at=excluded.researched_at, from_snapshot=1 WHERE companies.from_snapshot = 1",
             (name, c.get("policy_summary"), None if c.get("is_data_broker") is None else int(c["is_data_broker"]),
              c.get("opt_out_url"), json.dumps(c.get("news") or []), json.dumps(c.get("sources") or []),
-             c.get("researched_at") or db.now_ms()),
+             c.get("policy_source"), c.get("broker_source"), c.get("researched_at") or db.now_ms()),
         )
         n += 1
     return n

@@ -78,7 +78,7 @@ def test_ledger_written_before_send_and_secrets_not_logged(conn):
 def test_queries_only_carry_company_names():
     known = {"Google", "Criteo"}
     qs = research.build_queries("Criteo", known)
-    assert qs and all("Criteo" in q for q in qs)
+    assert set(qs) == {"policy", "registry", "news"} and all("Criteo" in q for q in qs.values())
     with pytest.raises(ValueError):
         research.build_queries("Unknown Co", known)
     # Even if a bad name somehow got into the known set, it never leaves the device.
@@ -150,36 +150,91 @@ def test_import_snapshot_marks_rows(conn, tmp_path):
 
 
 # ---------------------------------------------------------------------- research
+# Original plan: Tavily extract reads the privacy policy, Tavily search checks the
+# California and Vermont broker registries, Exa finds news and enforcement.
 
-class FakeSearch:
-    def __init__(self):
-        self.queries = []
+class FakeClients:
+    def __init__(self, registry_hit=True):
+        self.calls = []
+        self.registry_hit = registry_hit
 
-    def __call__(self, gate, query):
-        self.queries.append(query)
-        gate.post("https://api.tavily.com/search", {"query": query}, headers={})
-        return [{"url": "https://www.criteo.com/privacy/", "content": "policy"}]
+    def tavily_search(self, gate, query, include_domains=None):
+        self.calls.append(("tavily_search", query, tuple(include_domains or ())))
+        gate.post("https://api.tavily.com/search", {"query": query, "include_domains": include_domains or []}, headers={})
+        if include_domains:  # registry check
+            if not self.registry_hit:
+                return []
+            return [{"url": "https://cppa.ca.gov/data_broker_registry/", "content": "Criteo Corp. registered 2024"}]
+        return [{"url": "https://www.criteo.com/privacy/", "content": "policy page"},
+                {"url": "https://criteo-review.evil.example/", "content": "spam"}]
+
+    def tavily_extract(self, gate, url):
+        self.calls.append(("tavily_extract", url))
+        gate.post("https://api.tavily.com/extract", {"urls": [url]}, headers={})
+        return "Criteo collects browsing data and shares it with partners."
+
+    def exa_search(self, gate, query):
+        self.calls.append(("exa_search", query))
+        gate.post("https://api.exa.ai/search", {"query": query}, headers={})
+        return [{"url": "https://news.example/criteo-fine", "content": "CNIL fined Criteo in 2023"}]
 
 
+SUMMARY_MODEL = lambda p: json.dumps({"policy_summary": "Collects browsing data for ads.", "is_data_broker": False,
+                                      "opt_out_url": None, "news": ["Fined by CNIL in 2023"]})
 
 
-def test_refresh_researches_and_caches(conn):
-    search = FakeSearch()
+def test_research_uses_extract_registry_and_exa(conn):
+    clients = FakeClients()
     gate = egress.Gate(conn, sender=lambda *a: {})
-    model = lambda p: json.dumps({"policy_summary": "s", "is_data_broker": False, "opt_out_url": None, "news": []})
-    n = research.refresh(conn, ["Criteo"], gate=gate, searchers=[search], model=model, tracker_db=TDB, known={"Criteo"})
-    assert n == 1 and search.queries
-    row = conn.execute("SELECT policy_summary, from_snapshot, sources FROM companies WHERE name='Criteo'").fetchone()
-    assert row[0] == "s" and row[1] == 0 and "criteo.com" in row[2]
-    before = len(search.queries)  # fresh within a week: no new calls
-    research.refresh(conn, ["Criteo"], gate=gate, searchers=[search], model=model, tracker_db=TDB, known={"Criteo"})
-    assert len(search.queries) == before
+    n = research.refresh(conn, ["Criteo"], gate=gate, clients=clients, model=SUMMARY_MODEL, tracker_db=TDB,
+                         known={"Criteo"})
+    assert n == 1
+    kinds = [c[0] for c in clients.calls]
+    assert kinds.count("tavily_extract") == 1 and "exa_search" in kinds
+    # Extract only the policy on the company's own domain.
+    assert ("tavily_extract", "https://www.criteo.com/privacy/") in clients.calls
+    registry = [c for c in clients.calls if c[0] == "tavily_search" and c[2]]
+    assert registry and set(registry[0][2]) >= {"cppa.ca.gov", "oag.vermont.gov"}
+    row = conn.execute("SELECT policy_summary, is_data_broker, policy_source, broker_source, news, sources "
+                       "FROM companies WHERE name='Criteo'").fetchone()
+    assert row[0] == "Collects browsing data for ads."
+    assert row[1] == 1  # registry check decides, not the model
+    assert row[2] == "https://www.criteo.com/privacy/"
+    assert row[3] == "https://cppa.ca.gov/data_broker_registry/"
+    assert "https://news.example/criteo-fine" in row[5]
+
+
+def test_no_registry_hit_means_unknown_not_false(conn):
+    gate = egress.Gate(conn, sender=lambda *a: {})
+    research.refresh(conn, ["Criteo"], gate=gate, clients=FakeClients(registry_hit=False), model=SUMMARY_MODEL,
+                     tracker_db=TDB, known={"Criteo"})
+    assert conn.execute("SELECT is_data_broker FROM companies").fetchone()[0] is None
+
+
+def test_only_company_names_and_its_own_policy_url_leave(conn):
+    gate = egress.Gate(conn, sender=lambda *a: {})
+    research.refresh(conn, ["Criteo"], gate=gate, clients=FakeClients(), model=None, tracker_db=TDB, known={"Criteo"})
+    for (payload,) in conn.execute("SELECT payload FROM ledger"):
+        p = json.loads(payload)
+        if "query" in p:
+            assert "Criteo" in p["query"]
+        else:
+            assert p == {"urls": ["https://www.criteo.com/privacy/"]}
     assert ledger.verify(conn)["ok"]
+
+
+def test_refresh_is_weekly(conn):
+    clients = FakeClients()
+    gate = egress.Gate(conn, sender=lambda *a: {})
+    research.refresh(conn, ["Criteo"], gate=gate, clients=clients, model=None, tracker_db=TDB, known={"Criteo"})
+    before = len(clients.calls)
+    research.refresh(conn, ["Criteo"], gate=gate, clients=clients, model=None, tracker_db=TDB, known={"Criteo"})
+    assert len(clients.calls) == before
 
 
 def test_refresh_refuses_in_zero_network(conn):
     db.set_setting(conn, "zero_network", "1")
     gate = egress.Gate(conn, sender=lambda *a: {})
     with pytest.raises(egress.Blocked):
-        research.refresh(conn, ["Criteo"], gate=gate, searchers=[FakeSearch()], model=None, tracker_db=TDB,
+        research.refresh(conn, ["Criteo"], gate=gate, clients=FakeClients(), model=None, tracker_db=TDB,
                          known={"Criteo"})

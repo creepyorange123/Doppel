@@ -28,8 +28,8 @@ def cmd_refresh(args) -> int:
     if gate.zero_network():
         print("Zero-network mode is on: nothing was sent.")
         return 0
-    searchers = research.searchers_from_keystore()
-    if not searchers:
+    clients = research.clients_from_keystore()
+    if clients is None:
         print("No Tavily or Exa API key stored; run set-key first.", file=sys.stderr)
         return 1
     model = None
@@ -37,7 +37,7 @@ def cmd_refresh(args) -> int:
         model = topics.ollama_model(db.get_setting(conn, "research_model", "qwen2.5:7b") or "qwen2.5:7b",
                                     timeout=120)
     companies = research.top_companies(conn, args.top)
-    n = research.refresh(conn, companies, gate=gate, searchers=searchers, model=model,
+    n = research.refresh(conn, companies, gate=gate, clients=clients, model=model,
                          tracker_db=trackers.default())
     print(f"Researched {n} companies.")
     return 0
@@ -59,13 +59,15 @@ def cmd_sign_snapshot(args) -> int:
     priv = serialization.load_pem_private_key(Path(args.key).read_bytes(), password=None)
     conn = db.open_db()
     companies = {}
-    for name, summary, broker, opt_out, news, sources, at in conn.execute(
-        "SELECT name, policy_summary, is_data_broker, opt_out_url, news, sources, researched_at "
+    for name, summary, broker, opt_out, news, sources, at, psrc, bsrc in conn.execute(
+        "SELECT name, policy_summary, is_data_broker, opt_out_url, news, sources, researched_at, "
+        "policy_source, broker_source "
         "FROM companies WHERE from_snapshot = 0"
     ):
         companies[name] = {"policy_summary": summary, "is_data_broker": None if broker is None else bool(broker),
                            "opt_out_url": opt_out, "news": json.loads(news or "[]"),
-                           "sources": json.loads(sources or "[]"), "researched_at": at}
+                           "sources": json.loads(sources or "[]"), "researched_at": at,
+                           "policy_source": psrc, "broker_source": bsrc}
     snapshot.write_signed(snapshot.DEFAULT_SNAPSHOT, {"version": 1, "companies": companies}, priv)
     print(f"Signed snapshot with {len(companies)} companies.")
     return 0
