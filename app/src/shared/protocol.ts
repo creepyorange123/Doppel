@@ -12,6 +12,8 @@ export const REQUEST_TYPES = [
   "set_domain_rule",
   "set_tracking_mode",
   "delete_app_data",
+  // Phase 2
+  "analyze_since_last_open",
 ] as const;
 export type RequestType = (typeof REQUEST_TYPES)[number];
 
@@ -58,6 +60,13 @@ export interface ResultMap {
   set_domain_rule: Ok;
   set_tracking_mode: Ok;
   delete_app_data: { deleted: number };
+  analyze_since_last_open: AnalyzeResult;
+}
+
+export interface AnalyzeResult {
+  analyzed: number;
+  since: number;
+  finished_at: number;
 }
 
 /** Recorder controls, handled by the Electron main process (not the analyzer). */
