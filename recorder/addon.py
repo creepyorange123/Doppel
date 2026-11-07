@@ -9,6 +9,7 @@ import threading
 import time
 from typing import Any
 
+import sqlcipher3
 from mitmproxy import ctx, http, tls, udp
 from mitmproxy.connection import Client
 
@@ -21,6 +22,10 @@ log = logging.getLogger("shadow.recorder")
 
 HEARTBEAT_SECONDS = 30
 FLUSH_SECONDS = 1.0
+# With the 10 s busy timeout per attempt, a write waits well over a minute for the
+# analyzer before giving up.
+WRITE_ATTEMPTS = 6
+RETRY_DELAY = 1.0
 
 
 class Writer(threading.Thread):
@@ -82,14 +87,30 @@ class Writer(threading.Thread):
                 "url", "status", "headers", "cookies", "body", "body_truncated", "size_bytes", "flags",
                 "metadata_only")
         sql = f"INSERT INTO requests ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
-        try:
-            self.conn.execute("BEGIN")
-            self.conn.executemany(sql, [tuple(r.get(c) for c in cols) for r in batch])
-            self.conn.execute("COMMIT")
-            self.written += len(batch)
-        except Exception as exc:
-            self.conn.execute("ROLLBACK")
-            log.warning("write failed: %s", type(exc).__name__)
+        rows = [tuple(r.get(c) for c in cols) for r in batch]
+        for attempt in range(WRITE_ATTEMPTS):
+            began = False
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+                began = True
+                self.conn.executemany(sql, rows)
+                self.conn.execute("COMMIT")
+                self.written += len(batch)
+                return
+            except sqlcipher3.OperationalError as exc:
+                if began:
+                    self.conn.execute("ROLLBACK")
+                if "locked" not in str(exc) and "busy" not in str(exc):
+                    log.warning("write failed: %s", type(exc).__name__)
+                    return
+                # The analyzer holds the write lock for a batch; wait and retry, don't drop.
+                time.sleep(RETRY_DELAY * (attempt + 1))
+            except Exception as exc:
+                if began:
+                    self.conn.execute("ROLLBACK")
+                log.warning("write failed: %s", type(exc).__name__)
+                return
+        log.warning("write failed after retries; %d rows dropped", len(batch))
 
 
 def _json(v: Any) -> str | None:
