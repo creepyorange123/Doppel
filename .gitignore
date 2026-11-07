@@ -1,0 +1,33 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+
+# Node
+node_modules/
+app/dist/
+app/dist-electron/
+app/release/
+
+# Never commit captured data, databases, keys or certificates
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.pem
+*.p12
+*.key
+*.crt
+*.cer
+mitmproxy-ca*
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
