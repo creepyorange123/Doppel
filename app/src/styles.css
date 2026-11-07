@@ -34,8 +34,8 @@ ul.plain { list-style: none; padding: 0; }
 .tier { border-radius: 999px; padding: 2px 10px; font-size: 12px; border: 1px solid transparent; white-space: nowrap; }
 .tier-high { background: #5c1d1d; color: #ffb4ab; }
 .tier-profile { background: #5a3a12; color: #ffd27a; }
-.tier-moderate { background: #2a3b55; color: #a8c8ff; }
-.tier-low { background: #22302a; color: #a6d8b6; }
+.tier-measurement { background: #2a3b55; color: #a8c8ff; }
+.tier-minimum { background: #22302a; color: #a6d8b6; }
 .company { display: flex; gap: 12px; align-items: center; width: 100%; text-align: left; background: var(--card); margin-top: 8px; padding: 10px 12px; }
 .panel { padding: 8px 0 16px 12px; border-left: 2px solid var(--line); margin-left: 8px; }
 .breakdown { list-style: none; padding: 6px 10px; margin: 6px 0; background: #14171b; border: 1px solid var(--line); border-radius: 6px; max-width: 420px; }

@@ -15,11 +15,11 @@ export function summaryLine(s: ReportSummary): string {
 export function tierClass(tier: Tier): string {
   const map: Record<Tier, string> = {
     "High concern": "tier-high",
-    "Profile-building": "tier-profile",
-    Moderate: "tier-moderate",
-    Low: "tier-low",
+    "Profile building": "tier-profile",
+    Measurement: "tier-measurement",
+    "Minimum utility": "tier-minimum",
   };
-  return `tier ${map[tier] ?? "tier-low"}`;
+  return `tier ${map[tier] ?? "tier-minimum"}`;
 }
 
 export const ACTION_LABELS: Record<ActionName, string> = {

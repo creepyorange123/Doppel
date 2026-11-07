@@ -3,6 +3,11 @@
 Shows what every app on your computer sends, and to whom, since you last looked.
 Everything runs locally; captured traffic never leaves the device.
 
+**Contents:** [Setup](#setup-phase-0-check) ·
+[Running it for real](#running-it-for-real) · [Scoring](#how-requests-are-scored) ·
+[Local AI and company research](#local-ai-and-company-research-optional) ·
+[Demo](#demo) · [Known gaps](#known-gaps)
+
 ## Layout
 
 | Folder | Owner | What |
@@ -69,16 +74,125 @@ in your user's Run key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`); e
 the recorder runs unelevated, and starting the capture driver shows a UAC prompt. The
 app's consent screen runs `install` for you; no admin terminal is needed.
 
-Research (optional, Phase 5):
-
-```bash
-.venv/bin/python -m analyzer.research set-key tavily
-.venv/bin/python -m analyzer.research set-key exa
-.venv/bin/python -m analyzer.research refresh --top 50
-```
+To add the local AI model and company research, see
+[Local AI and company research](#local-ai-and-company-research-optional).
 
 Hand checks: `.venv/bin/python -m analyzer.review export --n 100 labels.csv`, label the
 `human_tier` column, then `.venv/bin/python -m analyzer.review report labels.csv`.
+
+## How requests are scored
+
+Every request gets a score from 0 to 100 and a tier, using the tiers and starting weights
+from the original project plan. Scoring is plain rules on this computer; no AI is involved,
+and each tier badge in the app opens the breakdown.
+
+| Tier | Score | Meaning | Default action |
+|---|---|---|---|
+| Minimum utility | 0–19 | Needed for the page to work, no identifier that follows you | Leave alone |
+| Measurement | 20–49 | Counts your visit or behaviour on one site, not across sites | Show, optionally block |
+| Profile building | 50–79 | Links your activity across sites or ties it to an identity | Recommend blocking |
+| High concern | 80–100 | Profile building plus sensitive context, personal identifiers or sharing | Block and flag |
+
+| Signal | Points |
+|---|---|
+| Third-party recipient | +10 |
+| Advertising or ad-motivated tracking company | +20 |
+| Session replay (category, or mouse and keystroke events) | +25 |
+| Cross-site identifier (same ID seen on 2+ sites) | +25 |
+| Page address sent alongside an identifier | +10 |
+| Fingerprinting | +20 |
+| Hashed personal identifier (your email or phone) | +30 |
+| Cookie syncing (same ID sent to another company) | +30 |
+| Registered data broker (from research) | +15 |
+| Page still works without it / breaks without it (breakage probe) | +10 / −20 |
+
+Requests from pages or apps on a sensitive topic (health, finance, religion, sexuality,
+dating) are multiplied by 1.5, capped at 100. The weights live in `analyzer/score.py` and
+are meant to be tuned against ~100 hand-labelled requests (see Hand checks above).
+
+## Local AI and company research (optional)
+
+Both are optional. Without them the app still works: page topics come from keyword
+rules, and profile cards show only what your own traffic reveals.
+
+| Piece | What it adds | Leaves your computer? |
+|---|---|---|
+| **Ollama** (local AI) | Better page-topic labels; plain-English company summaries | No. It runs on `127.0.0.1` only |
+| **Tavily** | Company privacy policies and data-broker registry checks | Only tracker **company names** |
+| **Exa** | News, lawsuits, fines and data-sharing partners | Only tracker **company names** |
+
+Commands below are for Windows (`.venv\Scripts\python`). On macOS use `.venv/bin/python`.
+
+### 1. Local AI with Ollama
+
+1. **Install Ollama** from [ollama.com](https://ollama.com) and keep the default install
+   location. On Windows it installs to your user folder with no admin rights needed.
+2. **Optional: keep models off a full C: drive.** Models are 2–5 GB each. Before pulling
+   any, set the location in the Ollama app's **Settings → Model location**, or run
+   `setx OLLAMA_MODELS "D:\Ollama\models"`. Then quit Ollama from the tray and start it
+   again so it uses the new location.
+3. **Download the models** (in a new terminal, so `ollama` is on your PATH):
+   ```bash
+   ollama pull qwen2.5:3b     # ~2 GB: page topics (needs ~8 GB RAM)
+   ollama pull qwen2.5:7b     # ~4.7 GB: research summaries (needs ~16 GB RAM); optional
+   ```
+4. **Check it works:**
+   ```bash
+   ollama run qwen2.5:3b "Reply with the word ready"
+   ```
+5. **Turn it on:** open the app → **Settings** → tick **Use the local AI model
+   (Ollama)**, then **close and reopen the app** (the analyzer reads this setting when it
+   starts).
+6. **Only have the 3B model?** Point research summaries at it:
+   ```bash
+   .venv\Scripts\python -c "from shared import db; db.set_setting(db.open_db(), 'research_model', 'qwen2.5:3b')"
+   ```
+   (`topic_model` sets the model for page topics the same way; the default is `qwen2.5:3b`.)
+
+Keep Ollama local-only: don't set `OLLAMA_HOST=0.0.0.0` or `OLLAMA_ORIGINS=*`. The
+analyzer only ever calls `http://127.0.0.1:11434`, and checks the model's answers against a
+fixed list or schema, falling back to keyword rules or templates if they don't match.
+
+### 2. Tavily and Exa API keys
+
+1. **Get the keys** (free tiers are enough):
+   - Tavily: sign up at [tavily.com](https://tavily.com) and copy your API key (`tvly-…`).
+   - Exa (optional): [exa.ai](https://exa.ai) → dashboard → API key.
+2. **Store them.** Keys go into Windows Credential Manager / the macOS Keychain, never into a
+   file in this repo. Paste each key when asked; nothing shows as you type.
+   ```bash
+   .venv\Scripts\python -m analyzer.research set-key tavily
+   .venv\Scripts\python -m analyzer.research set-key exa
+   ```
+   Run `set-key` again to replace a key. To remove one, delete the **ShadowProfile**
+   entry for it in Credential Manager (Windows Credentials) or Keychain Access.
+
+### 3. Run the research
+
+1. **Open the app once first** so it analyses your log. Research looks up the tracker
+   companies found in your own traffic (the 50 most common).
+2. **Check Settings → Zero-network mode is off.** When it's on, nothing is sent.
+3. **Run:**
+   ```bash
+   .venv\Scripts\python -m analyzer.research refresh --top 50
+   ```
+   It prints `Researched N companies.` With the local AI on, this can take several minutes.
+   Companies researched in the last 7 days are skipped, so run it again weekly.
+4. **See the results:** reopen the app → **Report** → click a company to see its policy
+   summary, data-broker status and news.
+5. **Check what left your computer:** **Settings → What left this device** lists every
+   query sent; there should be only company names. **Verify** confirms nobody edited the
+   list.
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `No Tavily or Exa API key stored` | Run the `set-key` step above. |
+| `Zero-network mode is on: nothing was sent.` | Turn off **Settings → Zero-network mode**. |
+| `Researched 0 companies.` | No tracker companies found yet: open the app so it analyses your log, or use the computer for a while first. Also skipped: companies researched in the last 7 days. |
+| `ollama pull` or `refresh` fails with a certificate or connection error | The recorder intercepted it, and the tool checks certificates against its own list. Run it again: after the first failure the recorder lets that app's traffic to that site through without decrypting it. |
+| Topics or summaries look like keyword fallbacks | Make sure Ollama is running (tray icon), the model is pulled (`ollama list`), the setting is on, and you reopened the app afterwards. |
 
 ## Demo
 

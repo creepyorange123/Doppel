@@ -88,6 +88,14 @@ CREATE TABLE IF NOT EXISTS id_sightings (
     PRIMARY KEY (hmac, company, context)
 );
 
+-- Breakage probe results per registrable domain (original plan, stretch).
+CREATE TABLE IF NOT EXISTS breakage (
+    domain      TEXT PRIMARY KEY,
+    result      TEXT NOT NULL CHECK (result IN ('works', 'breaks')),
+    page_site   TEXT,
+    probed_at   INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS scores (
     request_id  INTEGER PRIMARY KEY REFERENCES requests (id) ON DELETE CASCADE,
     score       INTEGER NOT NULL CHECK (score BETWEEN 0 AND 100),

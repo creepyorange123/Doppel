@@ -20,9 +20,9 @@ describe("summaryLine", () => {
 describe("tierClass", () => {
   it("maps every tier", () => {
     expect(tierClass("High concern")).toBe("tier tier-high");
-    expect(tierClass("Profile-building")).toBe("tier tier-profile");
-    expect(tierClass("Moderate")).toBe("tier tier-moderate");
-    expect(tierClass("Low")).toBe("tier tier-low");
+    expect(tierClass("Profile building")).toBe("tier tier-profile");
+    expect(tierClass("Measurement")).toBe("tier tier-measurement");
+    expect(tierClass("Minimum utility")).toBe("tier tier-minimum");
   });
 });
 
