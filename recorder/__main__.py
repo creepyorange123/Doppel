@@ -86,7 +86,7 @@ def cmd_install(args) -> int:
     conn = db.open_db()
     try:
         ca.provision()
-        service.install()
+        method = service.install()
     except Exception as exc:
         # Never leave a trusted certificate behind after a failed install.
         ca.remove()
@@ -95,7 +95,9 @@ def cmd_install(args) -> int:
         return 2
     db.set_setting(conn, "consent_at", str(db.now_ms()))
     _set_status(conn, installed=True)
-    print("Installed. The recorder runs in the background from now on.")
+    where = {"task": "a Task Scheduler logon task", "run_key": "your user's 'run at login' list",
+             "launch_agent": "a LaunchAgent"}.get(method, method)
+    print(f"Installed via {where}. The recorder is running in the background and starts at each login.")
     return 0
 
 
@@ -191,9 +193,12 @@ def build_master(*, fallback_port: int | None, ca_material, data_dir, db_path=No
 
 
 def cmd_run(args) -> int:
-    from recorder import ca
+    import os
+
+    from recorder import ca, service
 
     _quiet_logging()
+    service.pid_file().write_text(str(os.getpid()))  # lets uninstall stop us
     material = ca.load()
     if material is None or not ca.is_valid(material[1]):
         log.warning("certificate missing or expired: recording metadata only")
