@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ACTION_LABELS, summaryLine, tierClass, safeExternalLink } from "./report";
+import { ACTION_LABELS, summaryLine, safeExternalLink } from "./report";
+import { countsByKey, tierKey } from "./tiers";
 
 describe("summaryLine", () => {
   it("matches the plan's wording", () => {
@@ -17,12 +18,13 @@ describe("summaryLine", () => {
   });
 });
 
-describe("tierClass", () => {
-  it("maps every tier", () => {
-    expect(tierClass("High concern")).toBe("tier tier-high");
-    expect(tierClass("Profile-building")).toBe("tier tier-profile");
-    expect(tierClass("Moderate")).toBe("tier tier-moderate");
-    expect(tierClass("Low")).toBe("tier tier-low");
+describe("tiers", () => {
+  it("maps every analyzer tier to a display level", () => {
+    expect(tierKey("High concern")).toBe("high");
+    expect(tierKey("Profile-building")).toBe("profile");
+    expect(tierKey("Moderate")).toBe("measurement");
+    expect(tierKey("Low")).toBe("minimum");
+    expect(countsByKey({ Low: 2, "High concern": 1 })).toEqual({ high: 1, profile: 0, measurement: 0, minimum: 2 });
   });
 });
 

@@ -24,6 +24,7 @@ export const REQUEST_TYPES = [
   "company_detail",
   "take_action",
   "undo_action",
+  "list_requests",
 ] as const;
 export type RequestType = (typeof REQUEST_TYPES)[number];
 
@@ -79,6 +80,7 @@ export interface ResultMap {
   company_detail: CompanyDetail;
   take_action: { ok: true; letter?: string; domains?: string[] };
   undo_action: Ok;
+  list_requests: { requests: RequestListItem[]; truncated: boolean };
 }
 
 export type Tier = "Low" | "Moderate" | "Profile-building" | "High concern";
@@ -127,6 +129,10 @@ export interface CompanyRow {
 export interface Report {
   summary: ReportSummary;
   companies: CompanyRow[];
+  /** Requests per tier since the last open (exact, not per company). */
+  tier_requests: Record<Tier, number>;
+  /** Requests per local day, oldest first. */
+  by_day: { date: string; counts: Record<Tier, number> }[];
 }
 
 export interface BreakdownItem {
@@ -144,6 +150,12 @@ export interface RequestRow {
   score: number;
   tier: Tier;
   breakdown: BreakdownItem[];
+}
+
+export interface RequestListItem extends RequestRow {
+  company: string | null;
+  topic: string | null;
+  sensitive: boolean;
 }
 
 export interface CompanyDetail {

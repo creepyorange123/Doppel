@@ -116,3 +116,31 @@ def test_block_and_strip_do_not_change_track_decisions(conn):
 def test_gpc_setting_reaches_recorder(conn):
     call(conn, "set_setting", {"key": "gpc", "value": True})
     assert rules.RuleBook(conn, reload_seconds=0).snapshot().gpc is True
+
+
+# ------------------------------------------------------------- requests and charts
+
+def test_report_tier_and_day_counts(conn):
+    day = 86_400_000
+    add(conn, 1, "Criteo", "Advertising", 80, "High concern", at=2000)
+    add(conn, 2, "Criteo", "Advertising", 40, "Moderate", at=2000 + day)
+    add(conn, 3, "Hotjar", "Session Replay", 30, "Moderate", dest="script.hotjar.com", at=2000 + day)
+    add(conn, 4, "Hotjar", "Session Replay", 99, "High concern", dest="script.hotjar.com", at=500)  # before window
+    r = call(conn, "report")
+    assert r["tier_requests"] == {"Low": 0, "Moderate": 2, "Profile-building": 0, "High concern": 1}
+    assert [sum(d["counts"].values()) for d in r["by_day"]] == [1, 2]
+    assert r["by_day"][0]["date"] < r["by_day"][1]["date"]
+
+
+def test_list_requests_newest_first_with_limit(conn):
+    add(conn, 1, "Criteo", "Advertising", 80, "High concern", at=2000, topic="Medical Health")
+    add(conn, 2, "Hotjar", "Session Replay", 30, "Moderate", dest="script.hotjar.com", at=3000)
+    add(conn, 3, "Hotjar", "Session Replay", 30, "Moderate", dest="script.hotjar.com", at=500)  # before window
+    r = call(conn, "list_requests")
+    assert [x["id"] for x in r["requests"]] == [2, 1] and r["truncated"] is False
+    first = r["requests"][1]
+    assert first["company"] == "Criteo" and first["sensitive"] is True and first["breakdown"][0]["points"] == 80
+    r = call(conn, "list_requests", {"limit": 1})
+    assert [x["id"] for x in r["requests"]] == [2] and r["truncated"] is True
+    with pytest.raises(ProtocolError):
+        call(conn, "list_requests", {"limit": 0})
