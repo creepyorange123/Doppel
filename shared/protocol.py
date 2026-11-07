@@ -17,6 +17,8 @@ REQUEST_TYPES = frozenset({
     "list_apps", "set_app_rule", "set_domain_rule", "set_tracking_mode", "delete_app_data",
     # Phase 2
     "analyze_since_last_open",
+    # Phase 5
+    "get_settings", "set_setting", "ledger_verify", "ledger_list",
 })
 EVENT_TYPES = frozenset({"ready", "progress"})
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from analyzer import app_rules, pipeline
+from analyzer import app_rules, pipeline, settings_api
 from shared import db, protocol
 
 
@@ -39,6 +39,10 @@ HANDLERS: dict[str, Callable[[Any, dict], dict]] = {
     "set_tracking_mode": app_rules.set_tracking_mode,
     "delete_app_data": app_rules.delete_app_data,
     "analyze_since_last_open": pipeline.analyze_since_last_open,
+    "get_settings": settings_api.get_settings,
+    "set_setting": settings_api.set_setting,
+    "ledger_verify": settings_api.ledger_verify,
+    "ledger_list": settings_api.ledger_list,
 }
 
 

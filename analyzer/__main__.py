@@ -6,6 +6,7 @@ import logging
 import sys
 
 from analyzer import handlers, pipeline, setup
+from analyzer.research import snapshot
 from shared import db, protocol
 
 # Security checklist #9: no request logging. Diagnostics go to stderr and must
@@ -28,6 +29,11 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     conn = db.open_db()
     pipeline.STEPS[:], pipeline.SCORE_STEPS[:] = setup.build_steps(conn)
+    try:
+        # Profile cards fall back to the signed snapshot (and only it, in zero-network mode).
+        snapshot.import_into(conn, snapshot.load_verified())
+    except snapshot.BadSignature:
+        log.warning("bundled research snapshot failed its signature check; ignored")
     emit("ready", {"version": protocol.PROTOCOL_VERSION})
     for line in sys.stdin:
         line = line.strip()
