@@ -34,44 +34,62 @@ Everything runs locally; captured traffic never leaves the device.
 
 ## Setup (Phase 0 check)
 
-Requires Python 3.12+ and Node 22+.
+Requires Python 3.12+ and Node 22+. Commands below use macOS/Linux paths; on Windows,
+use `.venv\Scripts\python` instead of `.venv/bin/python`.
 
 ```bash
-python -m venv .venv
-.venv/Scripts/pip install -r requirements-dev.txt   # macOS: .venv/bin/pip
-.venv/Scripts/python -m shared.db                   # creates the empty encrypted database
-.venv/Scripts/python -m pytest
-cd app && npm ci && npm start                       # opens the empty app window
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt   # runtime deps + pytest
+.venv/bin/python -m shared.db                   # creates the empty encrypted database
+.venv/bin/python -m pytest
+cd app && npm ci && npm start                   # opens the app window
 ```
 
+The app starts the analyzer with `.venv/bin/python` (falling back to `python3` if the
+venv is missing), so install the Python dependencies before running `npm start`.
+
 `npm run smoke` builds the app, opens the window, prints what it shows, and quits.
-Set `SHADOW_DATA_DIR` to use a throwaway data folder during development.
+Set `SHADOW_DATA_DIR` to use a throwaway data folder during development (default:
+`~/Library/Application Support/` on macOS, `%LOCALAPPDATA%` on Windows).
 
 ## Running it for real
 
 ```bash
-.venv/Scripts/python -m recorder install      # consent, CA into your user trust store, login task
-.venv/Scripts/python -m recorder status
-.venv/Scripts/python -m recorder run          # what the login task runs (UAC prompt for the capture driver)
-.venv/Scripts/python -m recorder run --fallback-proxy 8899   # if local capture fails: set system proxy to 127.0.0.1:8899
-.venv/Scripts/python -m recorder uninstall [--wipe]
+.venv/bin/python -m recorder install          # consent, CA into your user trust store, start at login
+.venv/bin/python -m recorder status
+.venv/bin/python -m recorder run              # what the login item runs
+.venv/bin/python -m recorder run --fallback-proxy 8899   # if local capture fails: set system proxy to 127.0.0.1:8899
+.venv/bin/python -m recorder rotate-ca        # replace the CA (it expires after 30 days)
+.venv/bin/python -m recorder uninstall [--wipe]
 ```
 
-The app's consent screen runs `install` for you. Research (optional, Phase 5):
+"Start at login" is a LaunchAgent in `~/Library/LaunchAgents` on macOS and a Task
+Scheduler task on Windows (where starting the capture driver shows a UAC prompt). The
+app's consent screen runs `install` for you.
+
+Research (optional, Phase 5):
 
 ```bash
-.venv/Scripts/python -m analyzer.research set-key tavily
-.venv/Scripts/python -m analyzer.research set-key exa
-.venv/Scripts/python -m analyzer.research refresh --top 50
+.venv/bin/python -m analyzer.research set-key tavily
+.venv/bin/python -m analyzer.research set-key exa
+.venv/bin/python -m analyzer.research refresh --top 50
 ```
 
-Hand checks: `python -m analyzer.review export --n 100 labels.csv`, label the
-`human_tier` column, then `python -m analyzer.review report labels.csv`.
+Hand checks: `.venv/bin/python -m analyzer.review export --n 100 labels.csv`, label the
+`human_tier` column, then `.venv/bin/python -m analyzer.review report labels.csv`.
 
-Demo: `pip install -r requirements-demo.txt`, `python -m playwright install chromium`,
-`python -m demo.persona` the night before; `python scripts/predemo_check.py` before
-judging, and `--after-uninstall` after uninstalling. OS firewall rules:
-`scripts/firewall/` (review, then apply yourself).
+## Demo
+
+```bash
+.venv/bin/pip install -r requirements-demo.txt
+.venv/bin/python -m playwright install chromium
+.venv/bin/python -m demo.persona                 # the night before
+.venv/bin/python scripts/predemo_check.py        # before judging
+.venv/bin/python scripts/predemo_check.py --after-uninstall
+```
+
+OS firewall rules are in `scripts/firewall/` (`shadow-profile.lsrules` for macOS,
+`windows-firewall.ps1` for Windows); review them, then apply them yourself.
 
 ## Known gaps
 
