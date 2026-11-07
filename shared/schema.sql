@@ -11,7 +11,7 @@ PRAGMA foreign_keys = ON;
 -- Key/value settings. Known keys (see shared/db.py SETTINGS_KEYS):
 --   install_at, last_opened_at, tracking_mode ('blocklist' | 'allowlist'),
 --   zero_network ('0' | '1'), gpc ('0' | '1'), recorder_heartbeat_at,
---   schema_version
+--   recorder_status (JSON: mode, ca status, last error), schema_version
 CREATE TABLE IF NOT EXISTS settings (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL,
@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS app_rules (
     kind        TEXT NOT NULL CHECK (kind IN ('app', 'domain')),
     match       TEXT NOT NULL,          -- app path/name, or a domain
     rule        TEXT NOT NULL CHECK (rule IN ('track', 'metadata_only', 'dont_track')),
+    source      TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user', 'auto')),
+                                        -- 'auto': set by the recorder (e.g. certificate pinning)
     updated_at  INTEGER NOT NULL,
     UNIQUE (kind, match)
 );
