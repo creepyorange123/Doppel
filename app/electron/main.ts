@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from "electron";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { AnalyzerClient, pythonExecutable, repoRoot } from "./analyzer";
@@ -15,8 +15,11 @@ function createWindow(): void {
   win = new BrowserWindow({
     width: 1100,
     height: 760,
-    title: "Shadow Profile",
-    backgroundColor: "#111316",
+    minWidth: 720,
+    minHeight: 480,
+    title: "Doppel",
+    // Matches --ground in src/styles.css so there is no flash before the page paints.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#12151d" : "#eef0f3",
     webPreferences: {
       // Security checklist #5.
       contextIsolation: true,

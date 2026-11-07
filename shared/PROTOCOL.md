@@ -52,7 +52,8 @@ Analyzer → app (event, not tied to a request; no `id`):
 | `set_setting` | `{key: zero_network\|gpc\|local_ai\|california, value: bool}` | `{ok}` |
 | `ledger_verify` | `{}` | `{ok, entries, broken_at, latest_hash}` |
 | `ledger_list` | `{}` | `{entries: [{id, sent_at, destination, payload, hash}], latest_hash}` |
-| `report` | `{}` | `{summary: {since, requests, companies, high_concern}, companies: [...]}` |
+| `report` | `{}` | `{summary: {since, requests, companies, high_concern}, companies: [...], tier_requests: {tier: n}, by_day: [{date, counts: {tier: n}}]}` |
+| `list_requests` | `{limit?}` (default 1000) | `{requests: [{id, captured_at, app_name, dest_domain, company, summary, topic, sensitive, score, tier, breakdown}], truncated}` |
 | `company_detail` | `{company}` | `{card, requests: [{..., score, tier, breakdown}], actions, california}` |
 | `take_action` | `{company, action: block\|strip\|opt-out\|letter}` | `{ok, letter?, domains?}` |
 | `undo_action` | `{company, action: block\|strip}` | `{ok}` |

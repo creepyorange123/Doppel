@@ -45,6 +45,7 @@ HANDLERS: dict[str, Callable[[Any, dict], dict]] = {
     "ledger_list": settings_api.ledger_list,
     "report": report.report,
     "company_detail": report.company_detail,
+    "list_requests": report.list_requests,
     "take_action": report.take_action,
     "undo_action": report.undo_action,
 }

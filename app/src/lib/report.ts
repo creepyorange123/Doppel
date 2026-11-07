@@ -1,4 +1,4 @@
-import type { ActionName, ReportSummary, Tier } from "../shared/protocol";
+import type { ActionName, ReportSummary } from "../shared/protocol";
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 
@@ -10,16 +10,6 @@ export function summaryLine(s: ReportSummary): string {
     "company",
     "companies",
   )}, ${high} high concern.`;
-}
-
-export function tierClass(tier: Tier): string {
-  const map: Record<Tier, string> = {
-    "High concern": "tier-high",
-    "Profile building": "tier-profile",
-    Measurement: "tier-measurement",
-    "Minimum utility": "tier-minimum",
-  };
-  return `tier ${map[tier] ?? "tier-minimum"}`;
 }
 
 export const ACTION_LABELS: Record<ActionName, string> = {

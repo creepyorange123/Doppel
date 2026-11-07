@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from collections import Counter
 from urllib.parse import urlsplit
 
-from analyzer import trackers
+from analyzer import topics, trackers
 from analyzer.identify import registrable_domain
 from analyzer.research.summarize import safe_opt_out
 from shared import db
@@ -40,11 +41,17 @@ def actions_for(tier: str, has_opt_out: bool) -> list[str]:
 def report(conn, payload) -> dict:
     since = _since(conn)
     rows = conn.execute(
-        "SELECT f.company, f.category, s.score, s.tier, r.app_name FROM requests r "
+        "SELECT f.company, f.category, s.score, s.tier, r.app_name, r.captured_at FROM requests r "
         "JOIN findings f ON f.request_id = r.id JOIN scores s ON s.request_id = r.id "
         "WHERE r.captured_at > ?", (since,)).fetchall()
     companies: dict[str, dict] = {}
-    for company, category, score, tier, app in rows:
+    per_tier = {t: 0 for t in TIER_ORDER}
+    by_day: dict[str, dict[str, int]] = {}
+    for company, category, score, tier, app, at in rows:
+        per_tier[tier] = per_tier.get(tier, 0) + 1
+        day = dt.datetime.fromtimestamp(at / 1000).date().isoformat()  # local day
+        counts = by_day.setdefault(day, {t: 0 for t in TIER_ORDER})
+        counts[tier] = counts.get(tier, 0) + 1
         if not company:
             continue
         c = companies.setdefault(company, {"name": company, "category": category, "max_score": 0, "tier": "Minimum utility",
@@ -67,7 +74,26 @@ def report(conn, payload) -> dict:
         "summary": {"since": since, "requests": len(rows), "companies": len(companies),
                     "high_concern": sum(1 for c in companies.values() if c["tier"] == "High concern")},
         "companies": out,
+        "tier_requests": per_tier,
+        "by_day": [{"date": d, "counts": by_day[d]} for d in sorted(by_day)],
     }
+
+
+def list_requests(conn, payload) -> dict:
+    """Every scored request since the last open, newest first (capped)."""
+    limit = payload.get("limit", 1000)
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 5000:
+        raise ProtocolError("bad_payload", "limit must be an integer from 1 to 5000")
+    rows = conn.execute(
+        "SELECT r.id, r.captured_at, r.app_name, r.dest_domain, f.company, f.summary, f.topic, "
+        "s.score, s.tier, s.breakdown FROM requests r "
+        "JOIN findings f ON f.request_id = r.id JOIN scores s ON s.request_id = r.id "
+        "WHERE r.captured_at > ? ORDER BY r.captured_at DESC LIMIT ?", (_since(conn), limit + 1)).fetchall()
+    out = [{"id": rid, "captured_at": at, "app_name": app, "dest_domain": dest, "company": company,
+            "summary": summary, "topic": topic, "sensitive": topic in topics.SENSITIVE_TOPICS,
+            "score": score, "tier": tier, "breakdown": json.loads(breakdown or "[]")}
+           for rid, at, app, dest, company, summary, topic, score, tier, breakdown in rows[:limit]]
+    return {"requests": out, "truncated": len(rows) > limit}
 
 
 def _active_rule_actions(conn) -> dict[str, set[str]]:
