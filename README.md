@@ -4,7 +4,7 @@ Shows what every app on your computer sends, and to whom, since you last looked.
 Everything runs locally; captured traffic never leaves the device.
 
 **Contents:** [Setup](#setup-phase-0-check) ·
-[Running it for real](#running-it-for-real) ·
+[Running it for real](#running-it-for-real) · [Scoring](#how-requests-are-scored) ·
 [Local AI and company research](#local-ai-and-company-research-optional) ·
 [Demo](#demo) · [Known gaps](#known-gaps)
 
@@ -79,6 +79,36 @@ To add the local AI model and company research, see
 
 Hand checks: `.venv/bin/python -m analyzer.review export --n 100 labels.csv`, label the
 `human_tier` column, then `.venv/bin/python -m analyzer.review report labels.csv`.
+
+## How requests are scored
+
+Every request gets a score from 0 to 100 and a tier, using the tiers and starting weights
+from the original project plan. Scoring is plain rules on this computer; no AI is involved,
+and each tier badge in the app opens the breakdown.
+
+| Tier | Score | Meaning | Default action |
+|---|---|---|---|
+| Minimum utility | 0–19 | Needed for the page to work, no identifier that follows you | Leave alone |
+| Measurement | 20–49 | Counts your visit or behaviour on one site, not across sites | Show, optionally block |
+| Profile building | 50–79 | Links your activity across sites or ties it to an identity | Recommend blocking |
+| High concern | 80–100 | Profile building plus sensitive context, personal identifiers or sharing | Block and flag |
+
+| Signal | Points |
+|---|---|
+| Third-party recipient | +10 |
+| Advertising or ad-motivated tracking company | +20 |
+| Session replay (category, or mouse and keystroke events) | +25 |
+| Cross-site identifier (same ID seen on 2+ sites) | +25 |
+| Page address sent alongside an identifier | +10 |
+| Fingerprinting | +20 |
+| Hashed personal identifier (your email or phone) | +30 |
+| Cookie syncing (same ID sent to another company) | +30 |
+| Registered data broker (from research) | +15 |
+| Page still works without it / breaks without it (breakage probe) | +10 / −20 |
+
+Requests from pages or apps on a sensitive topic (health, finance, religion, sexuality,
+dating) are multiplied by 1.5, capped at 100. The weights live in `analyzer/score.py` and
+are meant to be tuned against ~100 hand-labelled requests (see Hand checks above).
 
 ## Local AI and company research (optional)
 
