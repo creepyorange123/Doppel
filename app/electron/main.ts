@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, session, shell } from "electron";
 import path from "node:path";
-import { AnalyzerClient } from "./analyzer";
-import { isRequestType, type AnalyzerEvent } from "../src/shared/protocol";
+import { execFile } from "node:child_process";
+import { AnalyzerClient, pythonExecutable, repoRoot } from "./analyzer";
+import { isRecorderAction, isRequestType, type AnalyzerEvent, type RecorderResult } from "../src/shared/protocol";
 
 let win: BrowserWindow | null = null;
 let analyzer: AnalyzerClient | null = null;
@@ -72,8 +73,31 @@ app.whenReady().then(() => {
     return analyzer!.request(type, body as Record<string, unknown>);
   });
 
+  ipcMain.handle("shadow:recorder", async (event, action: unknown): Promise<RecorderResult> => {
+    if (!win || event.sender !== win.webContents) throw new Error("forbidden");
+    if (!isRecorderAction(action)) throw new Error("unknown recorder action");
+    // install: the user already agreed on the consent screen, so pass --yes.
+    const args = action === "install" ? ["install", "--yes"] : [action];
+    return runRecorder(args);
+  });
+
   createWindow();
 });
+
+function runRecorder(args: string[]): Promise<RecorderResult> {
+  const root = repoRoot();
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.PYTHONPATH;
+  delete env.PYTHONSTARTUP;
+  return new Promise((resolve) => {
+    execFile(
+      pythonExecutable(root),
+      ["-s", "-m", "recorder", ...args],
+      { cwd: root, env, windowsHide: true, timeout: 5 * 60 * 1000 },
+      (err, stdout, stderr) => resolve({ ok: !err, output: (err ? stderr || String(err) : stdout).slice(0, 4000) }),
+    );
+  });
+}
 
 app.on("web-contents-created", (_e, contents) => {
   contents.on("will-attach-webview", (e) => e.preventDefault());

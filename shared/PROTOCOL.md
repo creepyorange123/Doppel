@@ -40,7 +40,15 @@ Analyzer → app (event, not tied to a request; no `id`):
 | type | payload | result |
 |---|---|---|
 | `hello` | `{}` | `{version, db_path_set}` |
-| `status` | `{}` | `{request_count, unanalyzed_count, install_at, last_opened_at, recorder_heartbeat_at}` |
+| `status` | `{}` | `{request_count, unanalyzed_count, install_at, last_opened_at, recorder_heartbeat_at, consent_at}` |
+| `list_apps` | `{}` | `{mode, apps: [{key, path, name, requests, last_seen_at, running, rule, rule_source}], domains: [{domain, rule}]}` |
+| `set_app_rule` | `{key, rule: "track"\|"metadata_only"\|"dont_track"\|null}` | `{ok}` |
+| `set_domain_rule` | `{domain, rule \| null}` | `{ok}` |
+| `set_tracking_mode` | `{mode: "blocklist"\|"allowlist"}` | `{ok}` |
+| `delete_app_data` | `{key}` | `{deleted}` |
+
+Recorder controls (`install`, `uninstall`, `status`) are not analyzer messages: the
+main process runs `python -m recorder <action>` itself, on the `shadow:recorder` channel.
 
 Later phases add: `analyze_since_last_open` (phase 2), `list_rules` / `set_rule`
 (phase 1 app list), `list_companies`, `take_action` (phase 6). Every new type is added

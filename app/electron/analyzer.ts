@@ -11,12 +11,12 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; time
 
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
-function repoRoot(): string {
+export function repoRoot(): string {
   // dist-electron/electron/analyzer.js -> repo root
   return path.resolve(__dirname, "..", "..", "..");
 }
 
-function pythonExecutable(root: string): string {
+export function pythonExecutable(root: string): string {
   if (process.env.SHADOW_PYTHON) return process.env.SHADOW_PYTHON;
   const venv =
     process.platform === "win32"

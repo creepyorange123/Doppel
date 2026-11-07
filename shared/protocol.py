@@ -11,7 +11,11 @@ from typing import Any
 PROTOCOL_VERSION = "0.1.0"
 MAX_LINE_BYTES = 1_000_000
 
-REQUEST_TYPES = frozenset({"hello", "status"})
+REQUEST_TYPES = frozenset({
+    "hello", "status",
+    # Phase 1: app list
+    "list_apps", "set_app_rule", "set_domain_rule", "set_tracking_mode", "delete_app_data",
+})
 EVENT_TYPES = frozenset({"ready", "progress"})
 
 
