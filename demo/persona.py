@@ -1,6 +1,9 @@
 """Phase 7: Playwright persona, run the night before the demo so the first
 'since last open' report is full.
 
+Original plan: "a made-up persona, say someone researching a medical condition,
+comparing loans and reading news, across about 15 sites".
+
     pip install -r requirements-demo.txt && python -m playwright install chromium
     python -m demo.persona            # with the recorder running
 
@@ -12,30 +15,35 @@ from __future__ import annotations
 
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class Visit:
     url: str
+    theme: str  # "medical" | "loans" | "news"
     actions: tuple[str, ...] = ("scroll", "wait")
-    note: str = ""
 
 
-# A reader who checks the news, a health worry, money, a recipe and some shopping.
 VISITS: list[Visit] = [
-    Visit("https://www.cnn.com/", note="news"),
-    Visit("https://www.theguardian.com/international", ("scroll", "wait", "click_first_article"), "news"),
-    Visit("https://www.webmd.com/", note="health (sensitive)"),
-    Visit("https://www.mayoclinic.org/diseases-conditions", note="health (sensitive)"),
-    Visit("https://www.healthline.com/", note="health (sensitive)"),
-    Visit("https://www.nerdwallet.com/", note="personal finance (sensitive)"),
-    Visit("https://www.bankrate.com/", note="personal finance (sensitive)"),
-    Visit("https://www.allrecipes.com/", note="food"),
-    Visit("https://www.weather.com/", note="weather"),
-    Visit("https://www.espn.com/", note="sports"),
-    Visit("https://www.imdb.com/", note="movies"),
-    Visit("https://www.target.com/", note="shopping"),
+    # Researching a medical condition (type 2 diabetes).
+    Visit("https://www.webmd.com/diabetes/type-2-diabetes", "medical"),
+    Visit("https://www.mayoclinic.org/diseases-conditions/type-2-diabetes/symptoms-causes/syc-20351193", "medical"),
+    Visit("https://www.healthline.com/health/type-2-diabetes", "medical"),
+    Visit("https://www.medicalnewstoday.com/articles/317462", "medical"),
+    Visit("https://www.everydayhealth.com/type-2-diabetes/", "medical"),
+    # Comparing loans.
+    Visit("https://www.nerdwallet.com/personal-loans", "loans"),
+    Visit("https://www.bankrate.com/loans/personal-loans/", "loans"),
+    Visit("https://www.lendingtree.com/personal/", "loans"),
+    Visit("https://www.creditkarma.com/personal-loans", "loans"),
+    Visit("https://www.investopedia.com/best-personal-loans-4773296", "loans"),
+    # Reading news.
+    Visit("https://www.cnn.com/", "news", ("scroll", "wait", "click_first_article")),
+    Visit("https://www.theguardian.com/international", "news", ("scroll", "wait", "click_first_article")),
+    Visit("https://www.usatoday.com/", "news"),
+    Visit("https://www.foxnews.com/", "news"),
+    Visit("https://www.washingtonpost.com/", "news"),
 ]
 
 LAUNCH_OPTIONS = {"persistent": False, "headless": False}
@@ -63,7 +71,7 @@ def run(visits: list[Visit] = VISITS, dwell: tuple[float, float] = (6, 12)) -> N
                         if link.count():
                             link.click(timeout=10_000)
                             time.sleep(random.uniform(*dwell))
-                print(f"visited {v.url} ({v.note})")
+                print(f"visited {v.url} ({v.theme})")
             except Exception as exc:  # a slow site shouldn't stop the persona
                 print(f"skipped {v.url}: {type(exc).__name__}")
         context.close()

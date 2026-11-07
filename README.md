@@ -68,6 +68,10 @@ The app's consent screen runs `install` for you. Research (optional, Phase 5):
 Hand checks: `python -m analyzer.review export --n 100 labels.csv`, label the
 `human_tier` column, then `python -m analyzer.review report labels.csv`.
 
+Scoring follows the original project plan's tiers (Minimum utility, Measurement, Profile
+building, High concern) and signals table; see `analyzer/score.py`. Breakage probe (stretch):
+`python -m demo.breakage_probe <page url> <tracker domain>` stores works/breaks per domain.
+
 Demo: `pip install -r requirements-demo.txt`, `python -m playwright install chromium`,
 `python -m demo.persona` the night before; `python scripts/predemo_check.py` before
 judging, and `--after-uninstall` after uninstalling. OS firewall rules:
