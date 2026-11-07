@@ -68,6 +68,13 @@ CREATE TABLE IF NOT EXISTS findings (
     summary     TEXT
 );
 
+-- Topic per page or app, keyed by an HMAC of the page so addresses aren't kept.
+CREATE TABLE IF NOT EXISTS topic_cache (
+    key         TEXT PRIMARY KEY,
+    topic       TEXT NOT NULL,
+    created_at  INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS scores (
     request_id  INTEGER PRIMARY KEY REFERENCES requests (id) ON DELETE CASCADE,
     score       INTEGER NOT NULL CHECK (score BETWEEN 0 AND 100),

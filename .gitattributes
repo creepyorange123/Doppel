@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.png binary
 *.ico binary
+shared/data/*.json -text
+shared/data/*.sha256 -text

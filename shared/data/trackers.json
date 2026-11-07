@@ -1,0 +1,473 @@
+{
+ "domains": {
+  "2o7.net": {
+   "category": "Analytics",
+   "company": "Adobe"
+  },
+  "3lift.com": {
+   "category": "Advertising",
+   "company": "TripleLift"
+  },
+  "addthis.com": {
+   "category": "Social - Share",
+   "company": "Oracle"
+  },
+  "adform.net": {
+   "category": "Advertising",
+   "company": "Adform"
+  },
+  "adjust.com": {
+   "category": "Ad Motivated Tracking",
+   "company": "Adjust"
+  },
+  "admob.com": {
+   "category": "Advertising",
+   "company": "Google"
+  },
+  "adnxs.com": {
+   "category": "Advertising",
+   "company": "Microsoft (Xandr)"
+  },
+  "ads-twitter.com": {
+   "category": "Advertising",
+   "company": "X Corp"
+  },
+  "ads.linkedin.com": {
+   "category": "Advertising",
+   "company": "Microsoft"
+  },
+  "adservice.google.com": {
+   "category": "Advertising",
+   "company": "Google"
+  },
+  "adsrvr.org": {
+   "category": "Advertising",
+   "company": "The Trade Desk"
+  },
+  "agkn.com": {
+   "category": "Data Broker",
+   "company": "Neustar (TransUnion)"
+  },
+  "amazon-adsystem.com": {
+   "category": "Advertising",
+   "company": "Amazon"
+  },
+  "amplitude.com": {
+   "category": "Analytics",
+   "company": "Amplitude"
+  },
+  "analytics.tiktok.com": {
+   "category": "Advertising",
+   "company": "ByteDance"
+  },
+  "app-measurement.com": {
+   "category": "Analytics",
+   "company": "Google"
+  },
+  "appsflyer.com": {
+   "category": "Ad Motivated Tracking",
+   "company": "AppsFlyer"
+  },
+  "assoc-amazon.com": {
+   "category": "Advertising",
+   "company": "Amazon"
+  },
+  "bat.bing.com": {
+   "category": "Advertising",
+   "company": "Microsoft"
+  },
+  "bidswitch.net": {
+   "category": "Advertising",
+   "company": "IPONWEB"
+  },
+  "bluekai.com": {
+   "category": "Data Broker",
+   "company": "Oracle"
+  },
+  "branch.io": {
+   "category": "Ad Motivated Tracking",
+   "company": "Branch"
+  },
+  "braze.com": {
+   "category": "Analytics",
+   "company": "Braze"
+  },
+  "browser.events.data.microsoft.com": {
+   "category": "Analytics",
+   "company": "Microsoft"
+  },
+  "casalemedia.com": {
+   "category": "Advertising",
+   "company": "Index Exchange"
+  },
+  "chartbeat.com": {
+   "category": "Analytics",
+   "company": "Chartbeat"
+  },
+  "chartbeat.net": {
+   "category": "Analytics",
+   "company": "Chartbeat"
+  },
+  "clarity.ms": {
+   "category": "Session Replay",
+   "company": "Microsoft"
+  },
+  "cloudflareinsights.com": {
+   "category": "Analytics",
+   "company": "Cloudflare"
+  },
+  "connect.facebook.net": {
+   "category": "Advertising",
+   "company": "Meta"
+  },
+  "contextweb.com": {
+   "category": "Advertising",
+   "company": "PulsePoint"
+  },
+  "crashlytics.com": {
+   "category": "Analytics",
+   "company": "Google"
+  },
+  "criteo.com": {
+   "category": "Advertising",
+   "company": "Criteo"
+  },
+  "criteo.net": {
+   "category": "Advertising",
+   "company": "Criteo"
+  },
+  "ct.pinterest.com": {
+   "category": "Advertising",
+   "company": "Pinterest"
+  },
+  "datadoghq.com": {
+   "category": "Analytics",
+   "company": "Datadog"
+  },
+  "demdex.net": {
+   "category": "Ad Motivated Tracking",
+   "company": "Adobe"
+  },
+  "doubleclick.net": {
+   "category": "Advertising",
+   "company": "Google"
+  },
+  "everesttech.net": {
+   "category": "Advertising",
+   "company": "Adobe"
+  },
+  "exelator.com": {
+   "category": "Data Broker",
+   "company": "Nielsen"
+  },
+  "facebook.com": {
+   "category": "Social Network",
+   "company": "Meta"
+  },
+  "facebook.net": {
+   "category": "Advertising",
+   "company": "Meta"
+  },
+  "fbcdn.net": {
+   "category": "CDN",
+   "company": "Meta"
+  },
+  "fingerprint.com": {
+   "category": "Fingerprinting",
+   "company": "Fingerprint"
+  },
+  "firebaseinstallations.googleapis.com": {
+   "category": "Analytics",
+   "company": "Google"
+  },
+  "firebaselogging-pa.googleapis.com": {
+   "category": "Analytics",
+   "company": "Google"
+  },
+  "fpjs.io": {
+   "category": "Fingerprinting",
+   "company": "Fingerprint"
+  },
+  "fullstory.com": {
+   "category": "Session Replay",
+   "company": "FullStory"
+  },
+  "google-analytics.com": {
+   "category": "Analytics",
+   "company": "Google"
+  },
+  "googleadservices.com": {
+   "category": "Advertising",
+   "company": "Google"
+  },
+  "googlesyndication.com": {
+   "category": "Advertising",
+   "company": "Google"
+  },
+  "googletagmanager.com": {
+   "category": "Tag Manager",
+   "company": "Google"
+  },
+  "googletagservices.com": {
+   "category": "Advertising",
+   "company": "Google"
+  },
+  "graph.facebook.com": {
+   "category": "Advertising",
+   "company": "Meta"
+  },
+  "gstatic.com": {
+   "category": "CDN",
+   "company": "Google"
+  },
+  "heap.io": {
+   "category": "Analytics",
+   "company": "Heap"
+  },
+  "heapanalytics.com": {
+   "category": "Analytics",
+   "company": "Heap"
+  },
+  "hotjar.com": {
+   "category": "Session Replay",
+   "company": "Hotjar"
+  },
+  "hotjar.io": {
+   "category": "Session Replay",
+   "company": "Hotjar"
+  },
+  "id5-sync.com": {
+   "category": "Ad Motivated Tracking",
+   "company": "ID5"
+  },
+  "instagram.com": {
+   "category": "Social Network",
+   "company": "Meta"
+  },
+  "intercom.io": {
+   "category": "Analytics",
+   "company": "Intercom"
+  },
+  "iovation.com": {
+   "category": "Fingerprinting",
+   "company": "TransUnion"
+  },
+  "kochava.com": {
+   "category": "Data Broker",
+   "company": "Kochava"
+  },
+  "krxd.net": {
+   "category": "Data Broker",
+   "company": "Salesforce"
+  },
+  "liadm.com": {
+   "category": "Ad Motivated Tracking",
+   "company": "LiveIntent"
+  },
+  "licdn.com": {
+   "category": "Social Network",
+   "company": "Microsoft"
+  },
+  "lijit.com": {
+   "category": "Advertising",
+   "company": "Sovrn"
+  },
+  "linkedin.com": {
+   "category": "Social Network",
+   "company": "Microsoft"
+  },
+  "logrocket.io": {
+   "category": "Session Replay",
+   "company": "LogRocket"
+  },
+  "lr-ingest.io": {
+   "category": "Session Replay",
+   "company": "LogRocket"
+  },
+  "mathtag.com": {
+   "category": "Advertising",
+   "company": "MediaMath"
+  },
+  "mc.yandex.ru": {
+   "category": "Analytics",
+   "company": "Yandex"
+  },
+  "media.net": {
+   "category": "Advertising",
+   "company": "Media.net"
+  },
+  "mixpanel.com": {
+   "category": "Analytics",
+   "company": "Mixpanel"
+  },
+  "moatads.com": {
+   "category": "Audience Measurement",
+   "company": "Oracle"
+  },
+  "mobile.events.data.microsoft.com": {
+   "category": "Analytics",
+   "company": "Microsoft"
+  },
+  "mouseflow.com": {
+   "category": "Session Replay",
+   "company": "Mouseflow"
+  },
+  "newrelic.com": {
+   "category": "Analytics",
+   "company": "New Relic"
+  },
+  "nr-data.net": {
+   "category": "Analytics",
+   "company": "New Relic"
+  },
+  "omtrdc.net": {
+   "category": "Analytics",
+   "company": "Adobe"
+  },
+  "onesignal.com": {
+   "category": "Analytics",
+   "company": "OneSignal"
+  },
+  "openx.net": {
+   "category": "Advertising",
+   "company": "OpenX"
+  },
+  "optimizely.com": {
+   "category": "Analytics",
+   "company": "Optimizely"
+  },
+  "outbrain.com": {
+   "category": "Advertising",
+   "company": "Outbrain"
+  },
+  "pinterest.com": {
+   "category": "Social Network",
+   "company": "Pinterest"
+  },
+  "pippio.com": {
+   "category": "Data Broker",
+   "company": "LiveRamp"
+  },
+  "pubmatic.com": {
+   "category": "Advertising",
+   "company": "PubMatic"
+  },
+  "quantcount.com": {
+   "category": "Audience Measurement",
+   "company": "Quantcast"
+  },
+  "quantserve.com": {
+   "category": "Audience Measurement",
+   "company": "Quantcast"
+  },
+  "reddit.com": {
+   "category": "Social Network",
+   "company": "Reddit"
+  },
+  "redditstatic.com": {
+   "category": "Social Network",
+   "company": "Reddit"
+  },
+  "rlcdn.com": {
+   "category": "Data Broker",
+   "company": "LiveRamp"
+  },
+  "rubiconproject.com": {
+   "category": "Advertising",
+   "company": "Magnite"
+  },
+  "sc-static.net": {
+   "category": "Advertising",
+   "company": "Snap"
+  },
+  "scorecardresearch.com": {
+   "category": "Audience Measurement",
+   "company": "Comscore"
+  },
+  "segment.com": {
+   "category": "Analytics",
+   "company": "Twilio Segment"
+  },
+  "segment.io": {
+   "category": "Analytics",
+   "company": "Twilio Segment"
+  },
+  "sentry.io": {
+   "category": "Analytics",
+   "company": "Sentry"
+  },
+  "sharethrough.com": {
+   "category": "Advertising",
+   "company": "Sharethrough"
+  },
+  "smartadserver.com": {
+   "category": "Advertising",
+   "company": "Equativ"
+  },
+  "smartlook.com": {
+   "category": "Session Replay",
+   "company": "Smartlook"
+  },
+  "snapchat.com": {
+   "category": "Social Network",
+   "company": "Snap"
+  },
+  "t.co": {
+   "category": "Social Network",
+   "company": "X Corp"
+  },
+  "taboola.com": {
+   "category": "Advertising",
+   "company": "Taboola"
+  },
+  "tapad.com": {
+   "category": "Data Broker",
+   "company": "Experian"
+  },
+  "teads.tv": {
+   "category": "Advertising",
+   "company": "Teads"
+  },
+  "tiktok.com": {
+   "category": "Social Network",
+   "company": "ByteDance"
+  },
+  "turn.com": {
+   "category": "Advertising",
+   "company": "Amobee"
+  },
+  "twitter.com": {
+   "category": "Social Network",
+   "company": "X Corp"
+  },
+  "vortex.data.microsoft.com": {
+   "category": "Analytics",
+   "company": "Microsoft"
+  },
+  "x.com": {
+   "category": "Social Network",
+   "company": "X Corp"
+  },
+  "yandex.ru": {
+   "category": "Analytics",
+   "company": "Yandex"
+  },
+  "yieldmo.com": {
+   "category": "Advertising",
+   "company": "Yieldmo"
+  },
+  "youtube.com": {
+   "category": "Embedded Content",
+   "company": "Google"
+  },
+  "ytimg.com": {
+   "category": "CDN",
+   "company": "Google"
+  },
+  "zendesk.com": {
+   "category": "Embedded Content",
+   "company": "Zendesk"
+  }
+ },
+ "source": "Curated subset modelled on DuckDuckGo Tracker Radar categories; rebuild with scripts/build_tracker_db.py"
+}
