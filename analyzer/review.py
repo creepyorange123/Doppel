@@ -4,8 +4,8 @@
     python -m analyzer.review report labels.csv           # scorer agreement
 
 The CSV holds only summaries, companies and flag names - never raw content.
-Fill the empty ``human_tier`` column with Low / Moderate / Profile-building /
-High concern. Keep the file on this computer.
+Fill the empty ``human_tier`` column with Minimum utility / Measurement /
+Profile building / High concern. Keep the file on this computer.
 """
 
 from __future__ import annotations
