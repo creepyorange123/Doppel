@@ -1,8 +1,11 @@
 """Start the recorder at login, with no window.
 
-- Windows: a Task Scheduler task, run at logon with *limited* (not elevated)
-  rights. mitmproxy starts its own small elevated redirector for local capture
-  mode; all parsing stays in this unprivileged process (security checklist #7).
+- Windows: a Task Scheduler task run at logon with *limited* (not elevated)
+  rights. Creating logon tasks can need admin rights; when Windows refuses, we
+  fall back to the per-user Run key (HKCU\\...\\CurrentVersion\\Run), which any
+  account can write and which also starts the recorder unelevated at login.
+  mitmproxy starts its own small elevated redirector for local capture mode;
+  all parsing stays in this unprivileged process (security checklist #7).
 - macOS: a LaunchAgent in ~/Library/LaunchAgents.
 
 Release builds point at the signed PyInstaller binary installed to a folder the
@@ -18,7 +21,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from shared import db
+
 TASK_NAME = "ShadowProfile Recorder"
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_VALUE = "ShadowProfileRecorder"
 LAUNCH_AGENT_LABEL = "com.shadowprofile.recorder"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -32,6 +39,99 @@ def recorder_command() -> list[str]:
         exe = pythonw if pythonw.exists() else exe
     return [str(exe), "-s", str(REPO_ROOT / "run_recorder.py"), "run"]
 
+
+def pid_file() -> Path:
+    return db.data_dir() / "recorder.pid"
+
+
+# --------------------------------------------------------------------- Windows
+
+class HkcuRun:
+    """The current user's Run key; no admin rights needed."""
+
+    def _key(self, access):
+        import winreg
+        return winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, access)
+
+    def set(self, name: str, value: str) -> None:
+        import winreg
+        with self._key(winreg.KEY_SET_VALUE) as k:
+            winreg.SetValueEx(k, name, 0, winreg.REG_SZ, value)
+
+    def get(self, name: str) -> str | None:
+        import winreg
+        try:
+            with self._key(winreg.KEY_QUERY_VALUE) as k:
+                return winreg.QueryValueEx(k, name)[0]
+        except FileNotFoundError:
+            return None
+
+    def delete(self, name: str) -> None:
+        import winreg
+        try:
+            with self._key(winreg.KEY_SET_VALUE) as k:
+                winreg.DeleteValue(k, name)
+        except FileNotFoundError:
+            pass
+
+
+def schtasks_create_command(cmd: list[str]) -> list[str]:
+    tr = subprocess.list2cmdline(cmd)
+    return ["schtasks", "/Create", "/TN", TASK_NAME, "/TR", tr, "/SC", "ONLOGON", "/RL", "LIMITED", "/F"]
+
+
+def _start_detached(cmd: list[str]) -> None:
+    flags = 0x00000008 | 0x00000200 | 0x08000000  # DETACHED_PROCESS | NEW_PROCESS_GROUP | NO_WINDOW
+    subprocess.Popen(cmd, cwd=str(REPO_ROOT), creationflags=flags, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def install_windows(run=subprocess.run, reg=None) -> str:
+    """Returns "task" or "run_key" depending on which login item was created."""
+    reg = reg or HkcuRun()
+    cmd = recorder_command()
+    res = run(schtasks_create_command(cmd), capture_output=True, text=True)
+    if res.returncode == 0:
+        run(["schtasks", "/Run", "/TN", TASK_NAME], capture_output=True)
+        reg.delete(RUN_VALUE)
+        return "task"
+    reg.set(RUN_VALUE, subprocess.list2cmdline(cmd))
+    _start_detached(cmd)  # start now, not only at the next login
+    return "run_key"
+
+
+def stop_running(run=subprocess.run) -> None:
+    pf = pid_file()
+    try:
+        pid = int(pf.read_text().strip())
+    except (OSError, ValueError):
+        return
+    if sys.platform == "win32" or run is not subprocess.run:
+        run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 15)
+        except OSError:
+            pass
+    pf.unlink(missing_ok=True)
+
+
+def uninstall_windows(run=subprocess.run, reg=None) -> None:
+    reg = reg or HkcuRun()
+    run(["schtasks", "/End", "/TN", TASK_NAME], capture_output=True)
+    run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"], capture_output=True)
+    reg.delete(RUN_VALUE)
+    stop_running(run)
+
+
+def is_installed_windows(run=subprocess.run, reg=None) -> bool:
+    reg = reg or HkcuRun()
+    if reg.get(RUN_VALUE):
+        return True
+    return run(["schtasks", "/Query", "/TN", TASK_NAME], capture_output=True).returncode == 0
+
+
+# ----------------------------------------------------------------------- macOS
 
 def launch_agent_path() -> Path:
     return Path.home() / "Library" / "LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist"
@@ -50,40 +150,35 @@ def launch_agent_plist(cmd: list[str]) -> bytes:
     })
 
 
-def schtasks_create_command(cmd: list[str]) -> list[str]:
-    tr = subprocess.list2cmdline(cmd)
-    return ["schtasks", "/Create", "/TN", TASK_NAME, "/TR", tr, "/SC", "ONLOGON", "/RL", "LIMITED", "/F"]
+# -------------------------------------------------------------------- dispatch
 
-
-def install() -> None:
-    cmd = recorder_command()
+def install() -> str:
     if sys.platform == "win32":
-        _check(subprocess.run(schtasks_create_command(cmd), capture_output=True, text=True))
-        subprocess.run(["schtasks", "/Run", "/TN", TASK_NAME], capture_output=True)
-    elif sys.platform == "darwin":
+        return install_windows()
+    if sys.platform == "darwin":
         path = launch_agent_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(launch_agent_plist(cmd))
+        path.write_bytes(launch_agent_plist(recorder_command()))
         uid = os.getuid()
         subprocess.run(["launchctl", "bootout", f"gui/{uid}", str(path)], capture_output=True)
         _check(subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(path)], capture_output=True, text=True))
-    else:
-        raise NotImplementedError("only macOS and Windows are supported")
+        return "launch_agent"
+    raise NotImplementedError("only macOS and Windows are supported")
 
 
 def uninstall() -> None:
     if sys.platform == "win32":
-        subprocess.run(["schtasks", "/End", "/TN", TASK_NAME], capture_output=True)
-        subprocess.run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"], capture_output=True)
+        uninstall_windows()
     elif sys.platform == "darwin":
         path = launch_agent_path()
         subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(path)], capture_output=True)
         path.unlink(missing_ok=True)
+        stop_running()
 
 
 def is_installed() -> bool:
     if sys.platform == "win32":
-        return subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME], capture_output=True).returncode == 0
+        return is_installed_windows()
     if sys.platform == "darwin":
         return launch_agent_path().exists()
     return False

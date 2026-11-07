@@ -31,3 +31,5 @@ mitmproxy-ca*
 Thumbs.db
 .vscode/
 .idea/
+# Public key used to verify the signed research snapshot (safe to publish).
+!shared/data/snapshot_public_key.pem
