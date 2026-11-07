@@ -113,6 +113,25 @@ class Writer(threading.Thread):
         log.warning("write failed after retries; %d rows dropped", len(batch))
 
 
+# Dropped handshakes to one site, with no success in between, before we treat
+# them as certificate pinning.
+DISCONNECT_THRESHOLD = 3
+
+
+def classify_tls_failure(error: str | None) -> str:
+    """mitmproxy's client TLS error -> "rejected" | "disconnected" | "other".
+
+    Only "rejected" (the client sent a bad-certificate / unknown-CA alert) is
+    certain. "disconnected" is usually a browser abandoning a spare connection.
+    """
+    e = (error or "").lower()
+    if "does not trust the proxy's certificate" in e and "may not trust" not in e and "disconnected" not in e:
+        return "rejected"
+    if "disconnected during the handshake" in e:
+        return "disconnected"
+    return "other"
+
+
 def _json(v: Any) -> str | None:
     return None if v is None else json.dumps(v, separators=(",", ":"))
 
@@ -127,6 +146,8 @@ class ShadowRecorder:
         self.ca_ready = ca_ready
         self.apps: dict[str, AppInfo] = {}
         self.decisions: dict[str, str] = {}
+        self.tls_ok: set[tuple[str, str]] = set()          # (app, site) handshakes that succeeded
+        self.disconnects: dict[tuple[str, str], int] = {}  # dropped handshakes, see tls_failed_client
 
     # ------------------------------------------------------------------ helpers
 
@@ -182,12 +203,40 @@ class ShadowRecorder:
         if decision == rules.METADATA_ONLY and sni and not sanitize.is_search_suggestion(sni, "/"):
             self.metadata_row(client, sni)
 
+    def _tls_key(self, client: Client) -> tuple[str, str] | None:
+        sni = (client.sni or "").lower()
+        app = self.app_for(client)
+        who = app.path or app.name
+        return (who, sni) if sni and who else None
+
+    def tls_established_client(self, data: tls.TlsData) -> None:
+        # This app accepted our certificate for this site, so later dropped
+        # handshakes to it are ordinary connection churn, not pinning.
+        key = self._tls_key(data.context.client)
+        if key:
+            if len(self.tls_ok) > 50_000:
+                self.tls_ok.clear()
+            self.tls_ok.add(key)
+            self.disconnects.pop(key, None)
+
     def tls_failed_client(self, data: tls.TlsData) -> None:
-        # The app rejected our certificate: most likely certificate pinning.
         client = data.context.client
         sni = client.sni or ""
         if not sni:
             return
+        kind = classify_tls_failure(getattr(client, "error", None))
+        if kind == "disconnected":
+            # Browsers abandon handshakes constantly. Only repeated drops to a site
+            # this app has never completed a handshake with look like pinning.
+            key = self._tls_key(client)
+            if key is None or key in self.tls_ok:
+                return
+            self.disconnects[key] = self.disconnects.get(key, 0) + 1
+            if self.disconnects[key] < DISCONNECT_THRESHOLD:
+                return
+        elif kind != "rejected":
+            return
+        # The app rejected our certificate: most likely certificate pinning.
         app = self.app_for(client)
         switched = self.rules.report_pinning_failure(app.path, app.name, sni)
         flags = [{"flag": "certificate_pinned", "where": "tls"}]
