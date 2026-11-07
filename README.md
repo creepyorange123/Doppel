@@ -63,9 +63,11 @@ Set `SHADOW_DATA_DIR` to use a throwaway data folder during development (default
 .venv/bin/python -m recorder uninstall [--wipe]
 ```
 
-"Start at login" is a LaunchAgent in `~/Library/LaunchAgents` on macOS and a Task
-Scheduler task on Windows (where starting the capture driver shows a UAC prompt). The
-app's consent screen runs `install` for you.
+"Start at login" is a LaunchAgent in `~/Library/LaunchAgents` on macOS. On Windows it is
+a Task Scheduler logon task, or, when Windows refuses that without admin rights, an entry
+in your user's Run key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`); either way
+the recorder runs unelevated, and starting the capture driver shows a UAC prompt. The
+app's consent screen runs `install` for you; no admin terminal is needed.
 
 Research (optional, Phase 5):
 
