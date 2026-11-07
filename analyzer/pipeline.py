@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from shared import db
 
-BATCH = 200
+BATCH = 50  # short write-lock holds so the recorder never waits long
 
 # Raw content removed after analysis; findings, scores and the HMAC flags stay.
 RAW_COLUMNS = ("body", "headers", "cookies", "url", "page_url")
@@ -76,7 +76,7 @@ def analyze_since_last_open(conn, payload: dict, emit: Callable[[str, dict], Non
     for steps in stages:
         for start in range(0, total, BATCH):
             chunk = ids[start:start + BATCH]
-            conn.execute("BEGIN")
+            conn.execute("BEGIN IMMEDIATE")  # take the write lock now; see test_survives_recorder_writing_at_the_same_time
             try:
                 for row in _rows(conn, chunk):
                     for step in steps:
@@ -89,7 +89,7 @@ def analyze_since_last_open(conn, payload: dict, emit: Callable[[str, dict], Non
             # Report in requests, not request-stages.
             emit("progress", {"done": done * total // max(work, 1), "total": total, "label": label})
 
-    conn.execute("BEGIN")
+    conn.execute("BEGIN IMMEDIATE")  # take the write lock now; see test_survives_recorder_writing_at_the_same_time
     try:
         for start in range(0, total, BATCH):
             chunk = ids[start:start + BATCH]
