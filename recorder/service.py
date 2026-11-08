@@ -116,6 +116,41 @@ def stop_running(run=subprocess.run) -> None:
     pf.unlink(missing_ok=True)
 
 
+def _recorded_pid() -> int | None:
+    try:
+        return int(pid_file().read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def is_running_windows(run=subprocess.run) -> bool:
+    pid = _recorded_pid()
+    if pid is None:
+        return False
+    res = run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"], capture_output=True, text=True)
+    return f'"{pid}"' in (res.stdout or "")
+
+
+def start_windows(run=subprocess.run, reg=None) -> str:
+    """Start the recorder now, using whichever login item install created."""
+    reg = reg or HkcuRun()
+    if is_running_windows(run):
+        return "already_running"
+    if run(["schtasks", "/Query", "/TN", TASK_NAME], capture_output=True).returncode == 0:
+        run(["schtasks", "/Run", "/TN", TASK_NAME], capture_output=True)
+        return "started"
+    if reg.get(RUN_VALUE):
+        _start_detached(recorder_command())
+        return "started"
+    raise RuntimeError("recorder is not installed")
+
+
+def stop_windows(run=subprocess.run, reg=None) -> None:
+    """Pause until the next login: the login item is kept."""
+    run(["schtasks", "/End", "/TN", TASK_NAME], capture_output=True)
+    stop_running(run)
+
+
 def uninstall_windows(run=subprocess.run, reg=None) -> None:
     reg = reg or HkcuRun()
     run(["schtasks", "/End", "/TN", TASK_NAME], capture_output=True)
@@ -174,6 +209,43 @@ def uninstall() -> None:
         subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(path)], capture_output=True)
         path.unlink(missing_ok=True)
         stop_running()
+
+
+def start() -> str:
+    if sys.platform == "win32":
+        return start_windows()
+    if sys.platform == "darwin":
+        path = launch_agent_path()
+        if not path.exists():
+            raise RuntimeError("recorder is not installed")
+        if is_running():
+            return "already_running"
+        subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(path)], capture_output=True)
+        return "started"
+    raise NotImplementedError("only macOS and Windows are supported")
+
+
+def stop() -> None:
+    if sys.platform == "win32":
+        stop_windows()
+    elif sys.platform == "darwin":
+        # bootout, not kill: KeepAlive would restart a killed recorder. The plist stays,
+        # so it starts again at the next login.
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(launch_agent_path())], capture_output=True)
+        stop_running()
+
+
+def is_running() -> bool:
+    if sys.platform == "win32":
+        return is_running_windows()
+    pid = _recorded_pid()
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def is_installed() -> bool:

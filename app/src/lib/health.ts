@@ -28,3 +28,16 @@ export function recorderHealth(heartbeat: number | null, now: number = Date.now(
     message: `The recorder hasn't been seen for ${humanDuration(gap)}. Traffic in that gap was not logged.`,
   };
 }
+
+/** Whether `recorder status` says the recorder process is running; null if unknown. */
+export function recorderRunning(statusOutput: string): boolean | null {
+  try {
+    const parsed: unknown = JSON.parse(statusOutput);
+    if (parsed && typeof parsed === "object" && typeof (parsed as { running?: unknown }).running === "boolean") {
+      return (parsed as { running: boolean }).running;
+    }
+  } catch {
+    // not JSON: fall through
+  }
+  return null;
+}

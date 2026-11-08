@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recorderHealth, RULE_LABELS } from "./health";
+import { recorderHealth, recorderRunning, RULE_LABELS } from "./health";
 
 describe("recorderHealth", () => {
   const now = 1_000_000_000;
@@ -17,5 +17,16 @@ describe("RULE_LABELS", () => {
     expect(RULE_LABELS.track).toBe("Track fully");
     expect(RULE_LABELS.metadata_only).toBe("Metadata only");
     expect(RULE_LABELS.dont_track).toBe("Don't track");
+  });
+});
+
+describe("recorderRunning", () => {
+  it("reads running from status output", () => {
+    expect(recorderRunning(JSON.stringify({ running: true, requests_logged: 3 }))).toBe(true);
+    expect(recorderRunning(JSON.stringify({ running: false }))).toBe(false);
+  });
+  it("is unknown for garbage or missing field", () => {
+    expect(recorderRunning("Traceback ...")).toBeNull();
+    expect(recorderRunning("{}")).toBeNull();
   });
 });

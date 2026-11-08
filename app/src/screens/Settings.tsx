@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Settings as SettingsData } from "../shared/protocol";
 import { Modal, Toggle } from "../components/ui";
 import type { StatusLine } from "../components/Sidebar";
+import { recorderRunning } from "../lib/health";
 
 export type Theme = "system" | "light" | "dark";
 
@@ -29,13 +30,29 @@ export function Settings({
 }) {
   const [confirmUninstall, setConfirmUninstall] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState<boolean | null>(null);
 
-  const recorderAction = async (action: "status" | "uninstall") => {
+  const refreshRunning = async () => {
+    const res = await window.shadow.recorder("status");
+    setRunning(res.ok ? recorderRunning(res.output) : null);
+  };
+
+  useEffect(() => {
+    void refreshRunning();
+  }, []);
+
+  const recorderAction = async (action: "status" | "uninstall" | "start" | "stop") => {
     setBusy(true);
     try {
       const res = await window.shadow.recorder(action);
       const first = res.output.trim().split("\n")[0];
-      onToast(res.ok ? first || (action === "uninstall" ? "Recorder uninstalled" : "Recorder OK") : first || "Recorder command failed");
+      if (action === "status") {
+        setRunning(res.ok ? recorderRunning(res.output) : null);
+        onToast(res.ok ? (recorderRunning(res.output) ? "Recorder is running" : "Recorder is off") : first || "Recorder command failed");
+      } else {
+        onToast(first || (res.ok ? "Done" : "Recorder command failed"));
+        await refreshRunning();
+      }
     } finally {
       setBusy(false);
     }
@@ -51,9 +68,19 @@ export function Settings({
           <span className={`dot dot-${recorder.state}`} /> Recorder
           <span className="muted pref-hint">{recorder.text}</span>
         </span>
-        <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => void recorderAction("status")}>
-          Check
-        </button>
+        <span className="pref-actions">
+          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => void recorderAction("status")}>
+            Check
+          </button>
+          <button
+            className="btn btn-sm"
+            disabled={busy || running === null}
+            title={running ? "Pause recording until you turn it back on or next log in" : "Start recording now"}
+            onClick={() => void recorderAction(running ? "stop" : "start")}
+          >
+            {busy ? "Working…" : running === null ? "Recorder" : running ? "Turn off" : "Turn on"}
+          </button>
+        </span>
       </div>
       {TOGGLES.map((t) => (
         <div key={t.key} className="pref">

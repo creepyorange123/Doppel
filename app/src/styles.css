@@ -1691,3 +1691,9 @@ a.btn-quiet {
 .site-row {
   grid-template-columns: 1fr auto;
 }
+
+.pref-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
