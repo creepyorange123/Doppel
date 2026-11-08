@@ -139,8 +139,10 @@ def _json(v: Any) -> str | None:
 class ShadowRecorder:
     """The addon. ``ca_ready`` False means TLS is never intercepted (metadata only)."""
 
-    def __init__(self, rulebook: rules.RuleBook, writer: Writer, hmac_key: bytes, *, ca_ready: bool):
+    def __init__(self, rulebook: rules.RuleBook, writer: Writer, hmac_key: bytes, *, ca_ready: bool,
+                 devlog=None):
         self.rules = rulebook
+        self.devlog = devlog  # recorder.devlog.TrafficLog, development only; None in normal use
         self.writer = writer
         self.hmac_key = hmac_key
         self.ca_ready = ca_ready
@@ -191,6 +193,8 @@ class ShadowRecorder:
         if decision == rules.TRACK and not self.ca_ready:
             decision = rules.METADATA_ONLY
         self.decisions[client.id] = decision
+        if self.devlog:
+            self.devlog.write("TLS", self.app_for(client).name, decision, sni)
         snap = self.rules.snapshot()
         if decision == rules.TRACK:
             return
@@ -200,7 +204,8 @@ class ShadowRecorder:
             return
         # Not decrypted: the connection passes through untouched.
         data.ignore_connection = True
-        if decision == rules.METADATA_ONLY and sni and not sanitize.is_search_suggestion(sni, "/"):
+        if (decision == rules.METADATA_ONLY and sni and not sanitize.is_search_suggestion(sni, "/")
+                and not sanitize.is_doh_host(sni)):
             self.metadata_row(client, sni)
 
     def _tls_key(self, client: Client) -> tuple[str, str] | None:
@@ -225,6 +230,8 @@ class ShadowRecorder:
         if not sni:
             return
         kind = classify_tls_failure(getattr(client, "error", None))
+        if self.devlog:
+            self.devlog.write("TLS-FAIL", self.app_for(client).name, self.decisions.get(client.id), sni, note=kind)
         if kind == "disconnected":
             # Browsers abandon handshakes constantly. Only repeated drops to a site
             # this app has never completed a handshake with look like pinning.
@@ -258,6 +265,8 @@ class ShadowRecorder:
         addr = flow.server_conn.address
         if addr and addr[1] == 443:
             decision = self.decide(flow.client_conn, None)
+            if self.devlog:
+                self.devlog.write("QUIC", self.app_for(flow.client_conn).name, decision, str(addr[0]), note="blocked")
             if decision != rules.DONT_TRACK:
                 self.metadata_row(flow.client_conn, str(addr[0]), [{"flag": "quic_blocked", "where": "udp"}])
             flow.kill()
@@ -294,10 +303,25 @@ class ShadowRecorder:
     # ------------------------------------------------------------------- record
 
     def _record(self, flow: http.HTTPFlow) -> None:
+        if self.devlog:
+            try:
+                self._devlog_http(flow)
+            except Exception as exc:
+                log.warning("dev traffic log failed: %s", type(exc).__name__)
         try:
             self._record_inner(flow)
         except Exception as exc:  # never let a bad request break the proxy
             log.warning("could not record a request: %s", type(exc).__name__)
+
+    def _devlog_http(self, flow: http.HTTPFlow) -> None:
+        req = flow.request
+        host = (req.pretty_host or req.host or "").lower()
+        notes = [k.removeprefix("shadow_") for k in ("shadow_blocked", "shadow_stripped") if flow.metadata.get(k)]
+        if flow.error:
+            notes.append(f"error: {flow.error.msg}")
+        self.devlog.write("HTTP", self.app_for(flow.client_conn).name, self.decide(flow.client_conn, host),
+                          req.pretty_url, method=req.method,
+                          status=flow.response.status_code if flow.response else "", note="; ".join(notes))
 
     def _record_inner(self, flow: http.HTTPFlow) -> None:
         req = flow.request
@@ -307,6 +331,8 @@ class ShadowRecorder:
         if decision == rules.DONT_TRACK:
             return
         if sanitize.is_search_suggestion(host, req.path):
+            return
+        if sanitize.is_dns_over_https(host, req.path, list(req.headers.items(multi=True))):
             return
         if flow.metadata.get("shadow_blocked"):
             self.metadata_row(client, host, [{"flag": "blocked_by_you", "where": "recorder"}])

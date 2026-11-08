@@ -90,7 +90,7 @@ def https_server(tmp: Path, key, cert, name: str):
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
+def env(tmp_path, monkeypatch, request):
     monkeypatch.setenv("SHADOW_DATA_DIR", str(tmp_path / "data"))
     db_key, hmac_key = secrets.token_bytes(32), secrets.token_bytes(32)
     db_path = tmp_path / "data" / "shadow.db"
@@ -109,12 +109,16 @@ def env(tmp_path, monkeypatch):
     mitm_ca_file.write_bytes(ca.cert_pem(mitm_cert))
     port = free_port()
     state = {}
+    devlog = None
+    if request.node.get_closest_marker("devlog"):
+        from recorder.devlog import TrafficLog
+        devlog = TrafficLog(tmp_path / "dev-logs" / "proxy.traffic.log")
 
     def run_proxy():
         async def main():
             master, writer = build_master(
                 fallback_port=port, ca_material=(mitm_key, mitm_cert), data_dir=db.data_dir(),
-                db_path=db_path, db_key=db_key, hmac_key=hmac_key,
+                db_path=db_path, db_key=db_key, hmac_key=hmac_key, devlog=devlog,
             )
             master.options.update(ssl_verify_upstream_trusted_ca=str(up_ca_file))
             state["master"], state["writer"] = master, writer
@@ -140,7 +144,7 @@ def env(tmp_path, monkeypatch):
         urllib.request.HTTPSHandler(context=client_ctx),
     )
     yield {"opener": opener, "good": good, "bad": bad, "state": state, "db_path": db_path,
-           "db_key": db_key, "data_dir": tmp_path / "data", "thread": t}
+           "db_key": db_key, "data_dir": tmp_path / "data", "thread": t, "devlog": devlog}
     if t.is_alive():
         state["master"].shutdown()
         t.join(timeout=10)
@@ -283,3 +287,41 @@ def test_gpc_header_added(env):
     port = env["good"].server_address[1]
     env["opener"].open(f"https://localhost:{port}/x", timeout=10).read()
     assert RECEIVED[-1]["headers"].get("sec-gpc") == "1"
+
+
+def test_no_dev_traffic_log_unless_asked(env, tmp_path):
+    port = env["good"].server_address[1]
+    env["opener"].open(f"https://localhost:{port}/x?q={SEARCH}", timeout=10).read()
+    time.sleep(0.5)
+    stop_and_read(env)
+    assert env["devlog"] is None
+    assert not list(tmp_path.rglob("*.log"))
+
+
+@pytest.mark.devlog
+def test_dev_traffic_log_lists_every_connection(env):
+    port = env["good"].server_address[1]
+    env["opener"].open(f"https://localhost:{port}/collect?page=home", timeout=10).read()
+    time.sleep(0.5)
+    stop_and_read(env)
+    env["devlog"].close()
+    path = env["devlog"].path
+    assert path.stat().st_mode & 0o777 == 0o600
+    lines = [line.split("\t") for line in path.read_text().splitlines()]
+    assert lines[0][:3] == ["time", "kind", "app"]
+    kinds = {(line[1], line[6]) for line in lines[1:]}
+    assert ("TLS", "localhost") in kinds
+    assert ("HTTP", f"https://localhost:{port}/collect?page=home") in kinds
+    http_line = next(line for line in lines if line[1] == "HTTP")
+    assert http_line[3] == "track" and http_line[4] == "GET" and http_line[5] == "200"
+
+
+def test_dns_over_https_is_not_stored(env):
+    port = env["good"].server_address[1]
+    r = urllib.request.Request(f"https://localhost:{port}/dns-query", data=b"\x00\x01lookup",
+                               headers={"Content-Type": "application/dns-message"})
+    env["opener"].open(r, timeout=10).read()
+    env["opener"].open(f"https://localhost:{port}/page", timeout=10).read()
+    time.sleep(1.5)
+    conn = stop_and_read(env)
+    assert [r[0] for r in conn.execute("SELECT url FROM requests")] == [f"https://localhost:{port}/page"]

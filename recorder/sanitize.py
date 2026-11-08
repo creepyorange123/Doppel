@@ -79,6 +79,28 @@ def is_search_suggestion(host: str, path_and_query: str) -> bool:
     return is_search_engine(host) and bool(SUGGEST_PATH_RE.search(path_and_query))
 
 
+# DNS over HTTPS: apps look up domain names through a resolver. These are not
+# tracking, and each lookup names a site you visit, so they are never stored.
+DOH_HOSTS = (
+    "cloudflare-dns.com", "dns.google", "dns.quad9.net", "doh.opendns.com", "dns.nextdns.io",
+    "doh.dns.apple.com", "dns.adguard-dns.com", "doh.mullvad.net", "dns.controld.com",
+    "doh.cleanbrowsing.org",
+)
+DOH_PATH_RE = re.compile(r"^/(dns-query|resolve)(/|\?|$)", re.IGNORECASE)
+DNS_CONTENT_TYPES = ("application/dns-message", "application/dns-json")
+
+
+def is_doh_host(host: str) -> bool:
+    return host_matches(host, DOH_HOSTS)
+
+
+def is_dns_over_https(host: str, path_and_query: str, headers: list[tuple[str, str]] | None = None) -> bool:
+    for name, value in headers or []:
+        if name.lower() in ("content-type", "accept") and any(t in value.lower() for t in DNS_CONTENT_TYPES):
+            return True
+    return is_doh_host(host) and bool(DOH_PATH_RE.match(path_and_query or ""))
+
+
 URL_IN_TEXT_RE = re.compile(r"https?(?::|%3A)(?://|%2F%2F)[^\s\"'<>\\]+", re.IGNORECASE)
 
 
@@ -379,7 +401,7 @@ class StoredRequest:
 def sanitize_request(raw: RawRequest, hasher: Hasher) -> StoredRequest | None:
     """Apply every storage rule. Returns None when the request must not be stored at all."""
     host = raw.host.lower().rstrip(".")
-    if is_search_suggestion(host, raw.path):
+    if is_search_suggestion(host, raw.path) or is_dns_over_https(host, raw.path, raw.headers):
         return None
 
     header_map = {k.lower(): v for k, v in raw.headers}
