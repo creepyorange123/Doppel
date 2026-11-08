@@ -147,7 +147,7 @@ def cmd_status(_args) -> int:
 
 
 def build_master(*, fallback_port: int | None, ca_material, data_dir, db_path=None,
-                 db_key: bytes | None = None, hmac_key: bytes | None = None):
+                 db_key: bytes | None = None, hmac_key: bytes | None = None, devlog=None):
     """Create the mitmproxy master with our addon. Must run inside an event loop."""
     from mitmproxy import options
     from mitmproxy.tools.dump import DumpMaster
@@ -186,7 +186,8 @@ def build_master(*, fallback_port: int | None, ca_material, data_dir, db_path=No
     rules_conn = db.open_db(db_path, db_key)
     writer = addon.Writer(writer_conn)
     rulebook = rules.RuleBook(rules_conn, fallback_mode=fallback_port is not None)
-    recorder = addon.ShadowRecorder(rulebook, writer, hmac_key or keystore.hmac_key(), ca_ready=ca_ready)
+    recorder = addon.ShadowRecorder(rulebook, writer, hmac_key or keystore.hmac_key(), ca_ready=ca_ready,
+                                    devlog=devlog)
     master.addons.add(recorder)
     _set_status(writer_conn, mode=mode[0], ca_ready=ca_ready, last_error=None, started_at=db.now_ms())
     return master, writer
@@ -203,11 +204,17 @@ def cmd_run(args) -> int:
     if material is None or not ca.is_valid(material[1]):
         log.warning("certificate missing or expired: recording metadata only")
     writer = None
+    devlog = None
+    if args.dev_traffic_log:
+        from recorder import devlog as devlog_mod
+
+        devlog = devlog_mod.TrafficLog(args.dev_traffic_log)
+        log.warning("DEVELOPMENT: writing every connection in plaintext to %s. Delete it when done.", devlog.path)
 
     async def run() -> None:
         nonlocal writer
         master, writer = build_master(fallback_port=args.fallback_proxy, ca_material=material,
-                                      data_dir=db.data_dir())
+                                      data_dir=db.data_dir(), devlog=devlog)
         writer.start()
         await master.run()
 
@@ -223,6 +230,8 @@ def cmd_run(args) -> int:
     finally:
         if writer is not None and writer.is_alive():
             writer.stop()
+        if devlog is not None:
+            devlog.close()
     return 0
 
 
@@ -232,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
     i = sub.add_parser("install")
     i.add_argument("--yes", action="store_true", help="consent was given in the app")
     r = sub.add_parser("run")
+    r.add_argument("--dev-traffic-log", metavar="PATH",
+                   help="DEVELOPMENT ONLY: also write every connection, with full URLs, to this plaintext file")
     r.add_argument("--fallback-proxy", type=int, metavar="PORT",
                    help="use a system-proxy listener on 127.0.0.1:PORT instead of local capture mode")
     sub.add_parser("status")

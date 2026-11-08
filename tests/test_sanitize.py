@@ -56,6 +56,24 @@ def test_search_suggestions_are_dropped(url):
     assert s.sanitize_request(req(url), hasher) is None
 
 
+# --------------------------------------------------------------- DNS over HTTPS
+
+@pytest.mark.parametrize("url,headers,method", [
+    ("https://chrome.cloudflare-dns.com/dns-query", [("Content-Type", "application/dns-message")], "POST"),
+    ("https://dns.google/resolve?name=clinic.example&type=A", [], "GET"),
+    ("https://dns.quad9.net/dns-query?dns=AAABAAABAAAAAAAA", [], "GET"),
+    ("https://doh.example.net/custom", [("Accept", "application/dns-json")], "GET"),
+])
+def test_dns_over_https_lookups_are_dropped(url, headers, method):
+    assert s.sanitize_request(req(url, headers=headers, body=b"\x00\x01", method=method), hasher) is None
+
+
+def test_other_requests_to_dns_providers_are_kept():
+    assert s.sanitize_request(req("https://www.cloudflare.com/learning/"), hasher) is not None
+    assert not s.is_dns_over_https("cloudflare-dns.com", "/about")
+    assert s.is_doh_host("mozilla.cloudflare-dns.com")
+
+
 def test_search_term_in_referer_and_tracker_pixel_is_removed():
     page = "https://www.google.com/search?q=embarrassing+rash"
     pixel = "https://tracker.example/p?dl=" + page.replace(":", "%3A").replace("/", "%2F") + "&cid=abc"
