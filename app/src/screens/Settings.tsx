@@ -84,7 +84,7 @@ export function Settings({
             title={running ? "Pause recording until you turn it back on or next log in" : "Start recording now"}
             onClick={() => void recorderAction(running ? "stop" : "start")}
           >
-            {running ? "Turn off" : "Turn on"}
+            {running === null ? " " : running ? "Turn off" : "Turn on"}
           </button>
         </span>
       </div>
