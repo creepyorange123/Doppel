@@ -4,7 +4,7 @@ import { RiskFilter, TierBadge, allTiers } from "../components/ui";
 import { CheckIcon, EraserIcon, ExternalIcon, LandmarkIcon, MailIcon, ShieldOffIcon, UndoIcon } from "../components/icons";
 import { emptyCounts, tierKey, type TierKey } from "../lib/tiers";
 import { safeExternalLink } from "../lib/report";
-import { SENSITIVE_TOPICS, flagLabel } from "../lib/signals";
+import { SENSITIVE_TOPICS, flagLabel, isDataFlag } from "../lib/signals";
 import { monthDay, num, when } from "../lib/format";
 
 // All captured and researched text is rendered as plain React text, never HTML.
@@ -102,7 +102,8 @@ function Profile({
     .sort((a, b) => b[1] - a[1]);
   const flags = Object.entries(card?.exposure.flags ?? {})
     .filter(([, n]) => n > 0)
-    .sort((a, b) => b[1] - a[1]);
+    // Sensitive data in the request first, then by count.
+    .sort((a, b) => Number(isDataFlag(b[0])) - Number(isDataFlag(a[0])) || b[1] - a[1]);
 
   return (
     <article className="profile" aria-label={row.name}>
@@ -213,7 +214,8 @@ function Profile({
                   <ul className="plain">
                     {flags.map(([f, n]) => (
                       <li key={f}>
-                        {flagLabel(f)} <span className="muted">({num(n)})</span>
+                        {isDataFlag(f) && <span className="sensitive">Sensitive</span>} {flagLabel(f)}{" "}
+                        <span className="muted">({num(n)})</span>
                       </li>
                     ))}
                   </ul>

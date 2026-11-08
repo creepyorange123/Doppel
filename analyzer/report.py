@@ -90,7 +90,7 @@ def list_requests(conn, payload) -> dict:
         "JOIN findings f ON f.request_id = r.id JOIN scores s ON s.request_id = r.id "
         "WHERE r.captured_at > ? ORDER BY r.captured_at DESC LIMIT ?", (_since(conn), limit + 1)).fetchall()
     out = [{"id": rid, "captured_at": at, "app_name": app, "dest_domain": dest, "company": company,
-            "summary": summary, "topic": topic, "sensitive": topic in topics.SENSITIVE_TOPICS,
+            "summary": summary, "topic": topic, "sensitive": topic in topics.SENSITIVE_TOPICS or '"sensitive_data"' in (breakdown or ""),
             "score": score, "tier": tier, "breakdown": json.loads(breakdown or "[]")}
            for rid, at, app, dest, company, summary, topic, score, tier, breakdown in rows[:limit]]
     return {"requests": out, "truncated": len(rows) > limit}

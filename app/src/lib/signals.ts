@@ -1,6 +1,16 @@
 // Mirrors analyzer/score.py LABELS and analyzer/topics.py SENSITIVE_TOPICS.
 
 export const FLAG_LABELS: Record<string, string> = {
+  // Sensitive data inside the request (analyzer/datatypes.py).
+  data_health: "Health information",
+  data_sexuality: "Information about sexuality",
+  data_religion: "Religious information",
+  data_children: "Information about children",
+  data_politics: "Political information",
+  data_ethnicity: "Information about ethnicity",
+  data_finance: "Banking or financial details",
+  data_personal: "Personal details (name, birth date, address, gender or ID)",
+  data_location: "Your precise location",
   raw_email: "Your email address",
   hashed_email: "A hash of your email",
   hashed_phone: "A hash of your phone number",
@@ -21,6 +31,9 @@ export const SENSITIVE_TOPICS = new Set([
   "Dating",
   "Religion & Spirituality",
 ]);
+
+/** Flags for sensitive data found inside the request itself. */
+export const isDataFlag = (flag: string) => flag.startsWith("data_");
 
 export const flagLabel = (flag: string) => FLAG_LABELS[flag] ?? flag.replace(/_/g, " ");
 

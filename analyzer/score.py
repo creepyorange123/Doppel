@@ -16,7 +16,7 @@ import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
-from analyzer import topics
+from analyzer import datatypes, topics
 from analyzer.identify import registrable_domain
 from shared import db
 
@@ -35,6 +35,9 @@ POINTS = {
     "personal_identifier": 30,
     "cookie_syncing": 30,
     "data_broker": 15,
+    # Added with payload data types (analyzer/datatypes.py); not in the original table.
+    "sensitive_data": 30,   # health, finance, sexuality, religion, children, politics, ethnicity
+    "personal_data": 20,    # name, birth date, address, gender, ID numbers, precise location
     "page_works_without_it": 10,
     "page_breaks_without_it": -20,
 }
@@ -42,6 +45,8 @@ AD_CATEGORIES = frozenset({"Advertising", "Ad Motivated Tracking"})
 PERSONAL_FLAGS = frozenset({"hashed_email", "hashed_phone", "raw_email"})
 IDENTIFIER_FLAGS = frozenset({"tracking_id"}) | PERSONAL_FLAGS
 SENSITIVE_MULTIPLIER = 1.5
+SPECIAL_DATA = {f"data_{c}": c for c in datatypes.SPECIAL}
+PERSONAL_DATA = {"data_personal": "personal details", "data_location": "precise location"}
 
 
 def tier_for(value: int) -> str:
@@ -156,6 +161,13 @@ def score(inp: Input, history) -> Result:
         b.append(_entry("cookie_syncing", "cookie syncing: the same ID went to another company"))
     if inp.is_data_broker or inp.category == "Data Broker":
         b.append(_entry("data_broker", "registered data broker"))
+    third_party = is_third_party(inp)
+    special = sorted({SPECIAL_DATA[k] for k in kinds if k in SPECIAL_DATA}) if third_party else []
+    personal = sorted({PERSONAL_DATA[k] for k in kinds if k in PERSONAL_DATA}) if third_party else []
+    if special:
+        b.append(_entry("sensitive_data", f"sensitive data in the request: {', '.join(special)}"))
+    if personal:
+        b.append(_entry("personal_data", f"personal data in the request: {', '.join(personal)}"))
     if inp.breakage == "works":
         b.append(_entry("page_works_without_it", "page works without it"))
     elif inp.breakage == "breaks":
@@ -164,10 +176,11 @@ def score(inp: Input, history) -> Result:
     base = max(0, sum(e["points"] for e in b))
     total = base
     sensitive = (inp.topic in topics.SENSITIVE_TOPICS
-                 or topics.keyword_topic(inp.app_name) in topics.SENSITIVE_TOPICS)
+                 or topics.keyword_topic(inp.app_name) in topics.SENSITIVE_TOPICS
+                 or bool(special))
     if sensitive and base:
         total = round(base * SENSITIVE_MULTIPLIER)
-        b.append({"signal": "sensitive_topic", "label": "sensitive topic or app (x1.5)", "points": total - base})
+        b.append({"signal": "sensitive_topic", "label": "sensitive topic, app or data (x1.5)", "points": total - base})
     total = min(100, total)
     return Result(total, tier_for(total), b)
 
