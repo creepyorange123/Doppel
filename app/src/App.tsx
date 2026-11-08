@@ -66,6 +66,7 @@ export function App() {
   const [report, setReport] = useState<Report | null>(null);
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [recorderOn, setRecorderOn] = useState<boolean | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState<View>("overview");
   const [company, setCompany] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -146,6 +147,25 @@ export function App() {
     const timer = window.setInterval(check, 30_000);
     return () => window.clearInterval(timer);
   }, [loadStatus]);
+
+  // Sidebar Refresh: analyse what the recorder logged since the last run, in place
+  // (no opening screen), then reload the report.
+  const refresh = () => {
+    if (refreshing || analyzing) return;
+    setRefreshing(true);
+    window.shadow
+      .request("analyze_since_last_open")
+      .then((r) => {
+        setLastRun(r);
+        loadReport();
+        toast(r.analyzed ? `Analysed ${r.analyzed.toLocaleString()} new request${r.analyzed === 1 ? "" : "s"}` : "No new requests");
+      })
+      .catch((e: Error) => toast(e.message))
+      .finally(() => {
+        void loadStatus();
+        setRefreshing(false);
+      });
+  };
 
   const onRecorderRunning = (running: boolean | null) => {
     setRecorderOn(running);
@@ -287,6 +307,8 @@ export function App() {
           collapsed={collapsed}
           onToggle={() => setCollapsed((c) => !c)}
           status={statusLines}
+          onRefresh={refresh}
+          refreshing={refreshing}
         />
         <main className={view === "ledger" ? "main main-fill" : "main"} ref={main}>
           {error && <p className="notice notice-error">{error}</p>}

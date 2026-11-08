@@ -7,6 +7,7 @@ import {
   DashboardIcon,
   PanelCloseIcon,
   PanelOpenIcon,
+  RefreshIcon,
   ScrollIcon,
   SlidersIcon,
 } from "./icons";
@@ -34,6 +35,8 @@ export function Sidebar({
   collapsed,
   onToggle,
   status,
+  onRefresh,
+  refreshing,
 }: {
   view: View;
   onNavigate: (v: View) => void;
@@ -41,6 +44,8 @@ export function Sidebar({
   collapsed: boolean;
   onToggle: () => void;
   status: StatusLine[];
+  onRefresh: () => void;
+  refreshing: boolean;
 }) {
   const toggleLabel = collapsed ? "Expand sidebar" : "Collapse sidebar";
   return (
@@ -64,6 +69,17 @@ export function Sidebar({
           </button>
         ))}
       </nav>
+      <button
+        className="refresh-btn"
+        onClick={onRefresh}
+        disabled={refreshing}
+        aria-busy={refreshing}
+        aria-label={collapsed ? "Refresh" : undefined}
+        title="Analyse new traffic and update the report"
+      >
+        <RefreshIcon className={refreshing ? "spin" : undefined} />
+        <span className="nav-label">{refreshing ? "Refreshing…" : "Refresh"}</span>
+      </button>
       <div className="status">
         {status.map((s) => (
           <span key={s.text} className="status-row" title={s.text}>
