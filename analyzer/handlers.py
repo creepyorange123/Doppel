@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from analyzer import app_rules, pipeline, report, settings_api
+from analyzer import app_rules, pipeline, privacy_checks, report, settings_api
 from shared import db, protocol
 
 
@@ -48,6 +48,7 @@ HANDLERS: dict[str, Callable[[Any, dict], dict]] = {
     "list_requests": report.list_requests,
     "take_action": report.take_action,
     "undo_action": report.undo_action,
+    "privacy_checks": privacy_checks.handle,
 }
 
 

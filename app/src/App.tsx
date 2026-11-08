@@ -19,6 +19,7 @@ import { Companies } from "./screens/Companies";
 import { Requests } from "./screens/Requests";
 import { RequestDrawer } from "./screens/RequestDrawer";
 import { Ledger } from "./screens/Ledger";
+import { Privacy } from "./screens/Privacy";
 import { Apps } from "./screens/Apps";
 import { Settings, type Theme } from "./screens/Settings";
 
@@ -349,6 +350,7 @@ export function App() {
               waiting
             ))}
           {view === "ledger" && <Ledger />}
+          {view === "privacy" && <Privacy />}
           {view === "apps" && <Apps onToast={toast} />}
           {view === "settings" &&
             (settings ? (

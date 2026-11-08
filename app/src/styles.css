@@ -1766,3 +1766,94 @@ a.btn-quiet {
     animation: none;
   }
 }
+
+/* Privacy screen: live checks. */
+.view-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.proof-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.proof-summary svg {
+  width: 15px;
+  height: 15px;
+}
+.proof-ok {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.proof-bad {
+  color: var(--t-high);
+  background: color-mix(in srgb, var(--t-high) 12%, transparent);
+}
+.proof-none {
+  color: var(--muted);
+  background: var(--raised);
+}
+.proof-list {
+  max-width: 720px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.proof {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.proof-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 50%;
+  font-weight: 600;
+}
+.proof-mark svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 3;
+}
+.proof-pass .proof-mark {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.proof-fail .proof-mark {
+  color: var(--t-high);
+  background: color-mix(in srgb, var(--t-high) 14%, transparent);
+}
+.proof-na .proof-mark {
+  color: var(--muted);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.proof-body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.proof-title {
+  font-weight: 600;
+}
+.proof-detail {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.proof-na .proof-title {
+  color: var(--muted);
+}
