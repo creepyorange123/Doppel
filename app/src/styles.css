@@ -1712,9 +1712,9 @@ a.btn-quiet {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  width: 100%;
+  width: 70%;
   height: 32px;
-  margin-top: 6px;
+  margin: 6px auto 0;
   padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: 7px;
@@ -1746,6 +1746,7 @@ a.btn-quiet {
   cursor: progress;
 }
 .is-collapsed .refresh-btn {
+  width: 100%;
   gap: 0;
   padding: 0;
 }
