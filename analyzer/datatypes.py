@@ -9,7 +9,9 @@ body), before raw content is deleted. Only the category and where it was found
    checksum, card numbers that pass the Luhn check, US SSNs...).
 2. Local AI, only when the rules find nothing, the local model is on and the request
    goes to a known tracker company. Its answer must come from a fixed category list.
-   Results are cached under a keyed hash, so no payload text is stored.
+   The model sees the payload's *shape* (IDs, emails, timestamps and numbers blanked), so
+   the same event with a new ID is one AI call. Results are cached under a keyed hash of
+   that shape, so no payload text is stored.
 """
 
 from __future__ import annotations
@@ -247,11 +249,32 @@ PROMPT = (
 )
 
 
+UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
+EMAIL = re.compile(r"[^@\s\"']{1,64}@[^@\s\"']{1,255}\.[A-Za-z]{2,}")
+LONG_MIXED = re.compile(r"\b(?=[A-Za-z0-9_\-]*\d)[A-Za-z0-9_\-]{12,}\b")  # long tokens with a digit: IDs, hashes
+
+
+def shape(text: str) -> str:
+    """The payload's shape: IDs, emails, timestamps and numbers blanked, words kept.
+
+    'Sertraline 50mg, user u_8f3a9c2e71b04d55' -> 'Sertraline #mg, user <id>'. Used for the
+    AI prompt and its cache key, so the same event with a new ID or time is one AI call,
+    and IDs never reach the model.
+    """
+    text = EMAIL.sub("<email>", text)
+    text = UUID.sub("<id>", text)
+    text = LONG_MIXED.sub("<id>", text)
+    return re.sub(r"\d+", "#", text)
+
+
 def ai_text(body, url: str | None) -> str | None:
     lines = []
     for where, _key, _parent, value in leaves(body, url):
-        if isinstance(value, str) and re.search(r"[A-Za-z]{3,}", value):
-            lines.append(f"{where}: {value[:200]}")
+        if not isinstance(value, str):
+            continue
+        v = shape(value[:200])
+        if re.search(r"[A-Za-z]{3,}", v.replace("<id>", "").replace("<email>", "")):
+            lines.append(f"{shape(where)}: {v}")
     text = "\n".join(lines)[:AI_TEXT_CHARS]
     return text or None
 

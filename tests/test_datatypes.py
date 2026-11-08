@@ -222,3 +222,43 @@ def test_requests_list_marks_sensitive_data_even_on_a_neutral_page(conn):
     db.set_setting(conn, "last_run_since", "0")
     r = handlers.handle(conn, "list_requests", {})
     assert r["requests"][0]["sensitive"] is True
+
+
+# ------------------------------------------------------------------ shape-based AI cache
+
+def _payload(**kw):
+    base = {"event": "screen viewed", "screen": "cycle calendar"}
+    base.update(kw)
+    return json.dumps(base).encode()
+
+
+def test_same_payload_with_new_ids_and_times_is_one_ai_call(conn):
+    m = FakeModel('{"categories": ["health"]}')
+    d = dt.Detector(conn, KEY, m)
+    first = d.flags(_payload(user_id="u_8f3a9c2e71b04d55", ts="2026-11-07T19:42:11Z", n=3), None, ai_allowed=True)
+    again = d.flags(_payload(user_id="u_1d77e0a94c3b2f18", ts="2026-11-08T08:01:59Z", n=17), None, ai_allowed=True)
+    uuid = d.flags(_payload(session="3f2b8a1c-9d4e-4b7a-8c6f-1e2d3c4b5a69"), None, ai_allowed=True)
+    assert first == again == uuid and first[0]["flag"] == "data_health"
+    # Fields holding only an ID drop out of the shape, so all three are one AI call.
+    assert len(m.prompts) == 1
+
+
+def test_different_words_are_still_asked_separately(conn):
+    m = FakeModel('{"categories": ["none"]}')
+    d = dt.Detector(conn, KEY, m)
+    d.flags(_payload(screen="cycle calendar"), None, ai_allowed=True)
+    d.flags(_payload(screen="settings page"), None, ai_allowed=True)
+    assert len(m.prompts) == 2
+
+
+@pytest.mark.parametrize("secret", ["u_8f3a9c2e71b04d55", "3f2b8a1c-9d4e-4b7a-8c6f-1e2d3c4b5a69",
+                                    "1794088697924", "someone@mail.example"])
+def test_ids_numbers_and_emails_never_reach_the_model(conn, secret):
+    m = FakeModel('{"categories": ["none"]}')
+    dt.Detector(conn, KEY, m).flags(_payload(extra=f"value {secret} here"), None, ai_allowed=True)
+    assert secret not in m.prompts[0]
+
+
+def test_shape_keeps_the_words_that_matter():
+    text = dt.ai_text(_payload(item="Sertraline 50mg", ref="abc123def456ghi789"), None)
+    assert "Sertraline #mg" in text and "abc123" not in text
