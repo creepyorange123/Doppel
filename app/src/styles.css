@@ -1697,3 +1697,7 @@ a.btn-quiet {
   gap: 8px;
   flex-shrink: 0;
 }
+.pref-btn-fixed {
+  min-width: 76px;
+  justify-content: center;
+}

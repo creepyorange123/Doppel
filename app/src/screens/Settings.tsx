@@ -33,8 +33,12 @@ export function Settings({
   const [running, setRunning] = useState<boolean | null>(null);
 
   const refreshRunning = async () => {
-    const res = await window.shadow.recorder("status");
-    setRunning(res.ok ? recorderRunning(res.output) : null);
+    try {
+      const res = await window.shadow.recorder("status");
+      setRunning(res.ok ? recorderRunning(res.output) : null);
+    } catch {
+      setRunning(null);
+    }
   };
 
   useEffect(() => {
@@ -53,6 +57,8 @@ export function Settings({
         onToast(first || (res.ok ? "Done" : "Recorder command failed"));
         await refreshRunning();
       }
+    } catch (e) {
+      onToast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : "Recorder command failed");
     } finally {
       setBusy(false);
     }
@@ -65,20 +71,20 @@ export function Settings({
       </header>
       <div className="pref">
         <span className="pref-name">
-          <span className={`dot dot-${recorder.state}`} /> Recorder
-          <span className="muted pref-hint">{recorder.text}</span>
+          <span className={`dot dot-${running === false ? "off" : recorder.state}`} /> Recorder
+          <span className="muted pref-hint">{running === false ? "Recorder off" : recorder.text}</span>
         </span>
         <span className="pref-actions">
           <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => void recorderAction("status")}>
             Check
           </button>
           <button
-            className="btn btn-sm"
+            className="btn btn-quiet btn-sm pref-btn-fixed"
             disabled={busy || running === null}
             title={running ? "Pause recording until you turn it back on or next log in" : "Start recording now"}
             onClick={() => void recorderAction(running ? "stop" : "start")}
           >
-            {busy ? "Working…" : running === null ? "Recorder" : running ? "Turn off" : "Turn on"}
+            {running ? "Turn off" : "Turn on"}
           </button>
         </span>
       </div>
