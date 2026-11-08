@@ -9,16 +9,18 @@ import {
   PanelOpenIcon,
   RefreshIcon,
   ScrollIcon,
+  ShieldCheckIcon,
   SlidersIcon,
 } from "./icons";
 
-export type View = "overview" | "companies" | "requests" | "ledger" | "apps" | "settings";
+export type View = "overview" | "companies" | "requests" | "ledger" | "privacy" | "apps" | "settings";
 
 const NAV: { id: View; label: string; icon: ComponentType<SVGProps<SVGSVGElement>> }[] = [
   { id: "overview", label: "Overview", icon: DashboardIcon },
   { id: "companies", label: "Companies", icon: BuildingIcon },
   { id: "requests", label: "Requests", icon: ActivityIcon },
   { id: "ledger", label: "Outgoing calls", icon: ScrollIcon },
+  { id: "privacy", label: "Privacy", icon: ShieldCheckIcon },
   { id: "apps", label: "Apps", icon: AppsIcon },
   { id: "settings", label: "Settings", icon: SlidersIcon },
 ];

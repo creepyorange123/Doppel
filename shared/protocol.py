@@ -21,6 +21,8 @@ REQUEST_TYPES = frozenset({
     "get_settings", "set_setting", "ledger_verify", "ledger_list",
     # Phase 6
     "report", "company_detail", "take_action", "undo_action", "list_requests",
+    # Privacy screen
+    "privacy_checks",
 })
 EVENT_TYPES = frozenset({"ready", "progress"})
 

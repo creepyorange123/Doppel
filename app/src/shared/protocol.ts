@@ -25,6 +25,8 @@ export const REQUEST_TYPES = [
   "take_action",
   "undo_action",
   "list_requests",
+  // Privacy screen
+  "privacy_checks",
 ] as const;
 export type RequestType = (typeof REQUEST_TYPES)[number];
 
@@ -81,6 +83,21 @@ export interface ResultMap {
   take_action: { ok: true; letter?: string; domains?: string[] };
   undo_action: Ok;
   list_requests: { requests: RequestListItem[]; truncated: boolean };
+  privacy_checks: PrivacyChecks;
+}
+
+/** One live privacy check. ok: true verified, false problem found, null not applicable. */
+export interface PrivacyCheck {
+  id: string;
+  title: string;
+  ok: boolean | null;
+  detail: string;
+}
+export interface PrivacyChecks {
+  checks: PrivacyCheck[];
+  ran_at: number;
+  passed: number;
+  failed: number;
 }
 
 export type Tier = "Minimum utility" | "Measurement" | "Profile building" | "High concern";

@@ -24,6 +24,10 @@ Everything runs locally; captured traffic never leaves the device.
 
 ## Privacy rules every change must keep
 
+The app's **Privacy** screen tests most of these live on your own data (encryption, key
+location, hashed IDs, no credentials or search terms, raw content deleted, no listening
+ports, local-only AI, outgoing calls, egress gate); see `analyzer/privacy_checks.py`.
+
 - The log is a SQLCipher-encrypted SQLite file in your user data folder; its key lives
   only in the macOS Keychain / Windows Credential Manager.
 - Never store `Cookie`, `Set-Cookie`, `Authorization` values, passwords or login bodies.
