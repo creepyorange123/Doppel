@@ -108,10 +108,22 @@ and each tier badge in the app opens the breakdown.
 | Hashed personal identifier (your email or phone) | +30 |
 | Cookie syncing (same ID sent to another company) | +30 |
 | Registered data broker (from research) | +15 |
+| Sensitive data inside the request: health, finance, sexuality, religion, children, politics, ethnicity (also triggers ×1.5) | +30 |
+| Personal data inside the request: name, birth date, address, gender, ID numbers, precise location | +20 |
 | Page still works without it / breaks without it (breakage probe) | +10 / −20 |
 
 Requests from pages or apps on a sensitive topic (health, finance, religion, sexuality,
-dating) are multiplied by 1.5, capped at 100. The weights live in `analyzer/score.py` and
+dating), or carrying sensitive data to a third party, are multiplied by 1.5, capped at 100.
+
+**Sensitive data inside requests** (`analyzer/datatypes.py`): before raw content is deleted, the
+analyzer checks each request's query string and body for health, location, banking/finance,
+personal details (name, birth date, address, gender, ID numbers, Meta's hashed `ud[...]` fields),
+sexuality, religion, children, politics and ethnicity. Rules look at field names and values
+(medication and condition words, coordinates, IBANs with a valid checksum, card numbers that pass
+the Luhn check, US SSNs). When the rules find nothing and the local AI is on, the model is asked
+(for known tracker companies only, up to 300 times per run) to pick from the same fixed list.
+Only the category and field name are kept, never the value; the two data signals count only
+when the data goes to a third party. The weights live in `analyzer/score.py` and
 are meant to be tuned against ~100 hand-labelled requests (see Hand checks above).
 
 ## Local AI and company research (optional)

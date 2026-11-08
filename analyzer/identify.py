@@ -19,7 +19,7 @@ from typing import Callable
 
 import keyring
 
-from analyzer import topics, trackers
+from analyzer import datatypes, topics, trackers
 from shared.keystore import SERVICE, keyed_hash
 
 PERSONAL_IDS_KEY = "personal-ids"  # JSON {"emails": [...], "phones": [...]} in the credential store
@@ -41,6 +41,16 @@ CATEGORY_PHRASES = {
 }
 
 FLAG_PHRASES = {
+    # Sensitive data inside the payload (analyzer/datatypes.py), most serious first.
+    "data_health": "health information",
+    "data_sexuality": "information about sexuality",
+    "data_religion": "religious information",
+    "data_children": "information about children",
+    "data_politics": "political information",
+    "data_ethnicity": "information about ethnicity",
+    "data_finance": "banking or financial details",
+    "data_personal": "personal details (name, birth date, address, gender or ID number)",
+    "data_location": "your precise location",
     "raw_email": "your email address",
     "hashed_email": "a hash of your email address",
     "hashed_phone": "a hash of your phone number",
@@ -164,12 +174,20 @@ class Context:
     tracker_db: trackers.TrackerDB = field(default_factory=trackers.default)
     resolve_cname: Callable[[str], str | None] | None = None
     _topic_cache: topics.TopicCache | None = None
+    _detector: datatypes.Detector | None = None
 
     @property
     def topic_cache(self) -> topics.TopicCache:
         if self._topic_cache is None:
             self._topic_cache = topics.TopicCache(self.conn, self.hmac_key)
         return self._topic_cache
+
+    @property
+    def detector(self) -> datatypes.Detector:
+        """Sensitive data types in payloads; uses the same local model as topics."""
+        if self._detector is None:
+            self._detector = datatypes.Detector(self.conn, self.hmac_key, self.topic_model)
+        return self._detector
 
 
 def classify_flags(raw_flags: list[dict], personal: PersonalIds) -> list[dict]:
@@ -250,6 +268,9 @@ def identify(ctx: Context, row: dict) -> Finding:
     flags = classify_flags(raw_flags, ctx.personal)
     if target.cloaked:
         flags.append({"flag": "cname_cloaked", "where": "dest"})
+    if not row.get("metadata_only"):
+        # Only the category and field name are kept; the AI is used only for known trackers.
+        flags += ctx.detector.flags(row.get("body"), row.get("url"), ai_allowed=target.company is not None)
     topic = ctx.topic_cache.get_or_classify(topics.topic_input(row), ctx.topic_model)
     summary = summarize(target.company, target.category, flags, bool(row.get("metadata_only")),
                         row["dest_domain"], target.cloaked)

@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS topic_cache (
     created_at  INTEGER NOT NULL
 );
 
+-- Sensitive-data categories the local AI found in a payload, keyed by an HMAC of
+-- the payload text so nothing readable is kept (analyzer/datatypes.py).
+CREATE TABLE IF NOT EXISTS payload_cache (
+    key         TEXT PRIMARY KEY,
+    categories  TEXT NOT NULL,          -- JSON list, e.g. ["health"]
+    created_at  INTEGER NOT NULL
+);
+
 -- Every sighting of a tracking ID (keyed hash only), across all history, so
 -- cross-site IDs and cookie syncing are caught even if first seen last week.
 CREATE TABLE IF NOT EXISTS id_sightings (
