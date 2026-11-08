@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Settings as SettingsData } from "../shared/protocol";
 import { Modal, Toggle } from "../components/ui";
 import type { StatusLine } from "../components/Sidebar";
+import { recorderRunning } from "../lib/health";
 
 export type Theme = "system" | "light" | "dark";
 
@@ -16,6 +17,8 @@ export function Settings({
   settings,
   onChange,
   recorder,
+  running,
+  onRunning,
   theme,
   onTheme,
   onToast,
@@ -23,6 +26,8 @@ export function Settings({
   settings: SettingsData;
   onChange: (key: keyof SettingsData, value: boolean) => void;
   recorder: StatusLine;
+  running: boolean | null;
+  onRunning: (running: boolean | null) => void;
   theme: Theme;
   onTheme: (t: Theme) => void;
   onToast: (text: string) => void;
@@ -30,12 +35,29 @@ export function Settings({
   const [confirmUninstall, setConfirmUninstall] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const recorderAction = async (action: "status" | "uninstall") => {
+  const refreshRunning = async () => {
+    try {
+      const res = await window.shadow.recorder("status");
+      onRunning(res.ok ? recorderRunning(res.output) : null);
+    } catch {
+      onRunning(null);
+    }
+  };
+
+  const recorderAction = async (action: "status" | "uninstall" | "start" | "stop") => {
     setBusy(true);
     try {
       const res = await window.shadow.recorder(action);
       const first = res.output.trim().split("\n")[0];
-      onToast(res.ok ? first || (action === "uninstall" ? "Recorder uninstalled" : "Recorder OK") : first || "Recorder command failed");
+      if (action === "status") {
+        onRunning(res.ok ? recorderRunning(res.output) : null);
+        onToast(res.ok ? (recorderRunning(res.output) ? "Recorder is running" : "Recorder is off") : first || "Recorder command failed");
+      } else {
+        onToast(first || (res.ok ? "Done" : "Recorder command failed"));
+        await refreshRunning();
+      }
+    } catch (e) {
+      onToast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : "Recorder command failed");
     } finally {
       setBusy(false);
     }
@@ -51,9 +73,19 @@ export function Settings({
           <span className={`dot dot-${recorder.state}`} /> Recorder
           <span className="muted pref-hint">{recorder.text}</span>
         </span>
-        <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => void recorderAction("status")}>
-          Check
-        </button>
+        <span className="pref-actions">
+          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => void recorderAction("status")}>
+            Check
+          </button>
+          <button
+            className="btn btn-quiet btn-sm pref-btn-fixed"
+            disabled={busy || running === null}
+            title={running ? "Pause recording until you turn it back on or next log in" : "Start recording now"}
+            onClick={() => void recorderAction(running ? "stop" : "start")}
+          >
+            {running === null ? " " : running ? "Turn off" : "Turn on"}
+          </button>
+        </span>
       </div>
       {TOGGLES.map((t) => (
         <div key={t.key} className="pref">

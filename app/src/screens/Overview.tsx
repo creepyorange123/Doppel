@@ -88,7 +88,8 @@ export function Overview({
         )}
       </section>
 
-      <div className="two-col block">
+      <h2 className="title section-title">Statistics</h2>
+      <div className="two-col">
         <section>
           <h2 className="h2">By risk</h2>
           <TierBar totals={countsByKey(report.tier_requests)} />

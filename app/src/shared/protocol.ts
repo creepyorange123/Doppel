@@ -183,7 +183,7 @@ export interface AnalyzeResult {
 }
 
 /** Recorder controls, handled by the Electron main process (not the analyzer). */
-export const RECORDER_ACTIONS = ["install", "uninstall", "status"] as const;
+export const RECORDER_ACTIONS = ["install", "uninstall", "status", "start", "stop"] as const;
 export type RecorderAction = (typeof RECORDER_ACTIONS)[number];
 export interface RecorderResult {
   ok: boolean;

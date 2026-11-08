@@ -125,6 +125,28 @@ def cmd_uninstall(args) -> int:
     return 0
 
 
+def cmd_start(_args) -> int:
+    from recorder import service
+
+    try:
+        result = service.start()
+    except RuntimeError as exc:
+        print(f"Could not start: {exc}.")
+        return 1
+    print("Recorder already running." if result == "already_running"
+          else "Recorder started. Approve the Windows permission prompt if one appears."
+          if sys.platform == "win32" else "Recorder started.")
+    return 0
+
+
+def cmd_stop(_args) -> int:
+    from recorder import service
+
+    service.stop()
+    print("Recorder stopped. It starts again at your next login, or turn it back on in Settings.")
+    return 0
+
+
 def cmd_status(_args) -> int:
     from recorder import ca, service
 
@@ -132,6 +154,7 @@ def cmd_status(_args) -> int:
     conn = db.open_db()
     hb = db.get_setting(conn, "recorder_heartbeat_at")
     print(json.dumps({
+        "running": service.is_running(),
         "service_installed": service.is_installed(),
         "service_binary_user_writable": service.command_is_user_writable(),
         "ca": None if loaded is None else {
@@ -246,13 +269,15 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--fallback-proxy", type=int, metavar="PORT",
                    help="use a system-proxy listener on 127.0.0.1:PORT instead of local capture mode")
     sub.add_parser("status")
+    sub.add_parser("start")
+    sub.add_parser("stop")
     rc = sub.add_parser("rotate-ca")
     rc.add_argument("--yes", action="store_true")
     u = sub.add_parser("uninstall")
     u.add_argument("--wipe", action="store_true", help="also delete the log and its keys")
     args = p.parse_args(argv)
     return {"install": cmd_install, "run": cmd_run, "status": cmd_status,
-            "rotate-ca": cmd_rotate_ca, "uninstall": cmd_uninstall}[args.cmd](args)
+            "start": cmd_start, "stop": cmd_stop, "rotate-ca": cmd_rotate_ca, "uninstall": cmd_uninstall}[args.cmd](args)
 
 
 if __name__ == "__main__":

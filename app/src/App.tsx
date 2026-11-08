@@ -8,7 +8,7 @@ import type {
   Settings as SettingsData,
   StatusResult,
 } from "./shared/protocol";
-import { recorderHealth } from "./lib/health";
+import { recorderHealth, recorderRunning, recorderStatusLine } from "./lib/health";
 import { Sidebar, type StatusLine, type View } from "./components/Sidebar";
 import { Opening } from "./components/Opening";
 import { Modal, Toasts, type ToastItem } from "./components/ui";
@@ -65,6 +65,8 @@ export function App() {
   const [skipped, setSkipped] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
   const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [recorderOn, setRecorderOn] = useState<boolean | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState<View>("overview");
   const [company, setCompany] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -129,6 +131,46 @@ export function App() {
     else root.setAttribute("data-theme", theme);
     store("doppel-theme", theme);
   }, [theme]);
+
+  // Whether the recorder process is running: checked at startup, then every 30 s, so
+  // the status dot follows the recorder even if it stops on its own. Settings also
+  // updates it right after Check / Turn on / Turn off.
+  useEffect(() => {
+    const check = () => {
+      window.shadow
+        .recorder("status")
+        .then((res) => setRecorderOn(res.ok ? recorderRunning(res.output) : null))
+        .catch(() => setRecorderOn(null));
+      void loadStatus(); // fresh heartbeat
+    };
+    check();
+    const timer = window.setInterval(check, 30_000);
+    return () => window.clearInterval(timer);
+  }, [loadStatus]);
+
+  // Sidebar Refresh: analyse what the recorder logged since the last run, in place
+  // (no opening screen), then reload the report.
+  const refresh = () => {
+    if (refreshing || analyzing) return;
+    setRefreshing(true);
+    window.shadow
+      .request("analyze_since_last_open")
+      .then((r) => {
+        setLastRun(r);
+        loadReport();
+        toast(r.analyzed ? `Analysed ${r.analyzed.toLocaleString()} new request${r.analyzed === 1 ? "" : "s"}` : "No new requests");
+      })
+      .catch((e: Error) => toast(e.message))
+      .finally(() => {
+        void loadStatus();
+        setRefreshing(false);
+      });
+  };
+
+  const onRecorderRunning = (running: boolean | null) => {
+    setRecorderOn(running);
+    void loadStatus();
+  };
 
   useEffect(() => store("doppel-sidebar", collapsed ? "collapsed" : "open"), [collapsed]);
 
@@ -196,13 +238,10 @@ export function App() {
   };
 
   const health = status ? recorderHealth(status.recorder_heartbeat_at) : null;
-  const recorderLine: StatusLine = !health
-    ? { text: "Recorder", state: "off" }
-    : health.state === "ok"
-      ? { text: "Recorder on", state: "ok" }
-      : health.state === "never"
-        ? { text: "Recorder not started", state: "off" }
-        : { text: "Recorder stopped", state: "warn" };
+  const recorderLine: StatusLine =
+    !status && recorderOn === null
+      ? { text: "Recorder", state: "off" }
+      : recorderStatusLine(recorderOn, status?.recorder_heartbeat_at ?? null);
   const statusLines: StatusLine[] = [
     recorderLine,
     settings?.local_ai ? { text: "Local AI on", state: "ok" } : { text: "Keyword rules", state: "ok" },
@@ -243,7 +282,15 @@ export function App() {
     );
   }
 
-  const notice = !noticeDismissed && health && health.state !== "ok" ? health.message : null;
+  const notice = noticeDismissed
+    ? null
+    : recorderOn === false
+      ? "The recorder is off, so nothing is being logged. Turn it on in Settings."
+      : recorderOn === true && health?.state === "never"
+        ? null
+        : health && health.state !== "ok"
+          ? health.message
+          : null;
   const waiting = (
     <div className="view">
       <p className="empty">{analyzing ? `${progress?.label ?? "Analyzing"}…` : lastRun ? "Building report…" : "No report yet."}</p>
@@ -260,6 +307,8 @@ export function App() {
           collapsed={collapsed}
           onToggle={() => setCollapsed((c) => !c)}
           status={statusLines}
+          onRefresh={refresh}
+          refreshing={refreshing}
         />
         <main className={view === "ledger" ? "main main-fill" : "main"} ref={main}>
           {error && <p className="notice notice-error">{error}</p>}
@@ -303,7 +352,7 @@ export function App() {
           {view === "apps" && <Apps onToast={toast} />}
           {view === "settings" &&
             (settings ? (
-              <Settings settings={settings} onChange={changeSetting} recorder={recorderLine} theme={theme} onTheme={setTheme} onToast={toast} />
+              <Settings settings={settings} onChange={changeSetting} recorder={recorderLine} running={recorderOn} onRunning={onRecorderRunning} theme={theme} onTheme={setTheme} onToast={toast} />
             ) : (
               waiting
             ))}
