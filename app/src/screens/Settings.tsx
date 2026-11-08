@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Settings as SettingsData } from "../shared/protocol";
 import { Modal, Toggle } from "../components/ui";
 import type { StatusLine } from "../components/Sidebar";
@@ -17,6 +17,8 @@ export function Settings({
   settings,
   onChange,
   recorder,
+  running,
+  onRunning,
   theme,
   onTheme,
   onToast,
@@ -24,26 +26,23 @@ export function Settings({
   settings: SettingsData;
   onChange: (key: keyof SettingsData, value: boolean) => void;
   recorder: StatusLine;
+  running: boolean | null;
+  onRunning: (running: boolean | null) => void;
   theme: Theme;
   onTheme: (t: Theme) => void;
   onToast: (text: string) => void;
 }) {
   const [confirmUninstall, setConfirmUninstall] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [running, setRunning] = useState<boolean | null>(null);
 
   const refreshRunning = async () => {
     try {
       const res = await window.shadow.recorder("status");
-      setRunning(res.ok ? recorderRunning(res.output) : null);
+      onRunning(res.ok ? recorderRunning(res.output) : null);
     } catch {
-      setRunning(null);
+      onRunning(null);
     }
   };
-
-  useEffect(() => {
-    void refreshRunning();
-  }, []);
 
   const recorderAction = async (action: "status" | "uninstall" | "start" | "stop") => {
     setBusy(true);
@@ -51,7 +50,7 @@ export function Settings({
       const res = await window.shadow.recorder(action);
       const first = res.output.trim().split("\n")[0];
       if (action === "status") {
-        setRunning(res.ok ? recorderRunning(res.output) : null);
+        onRunning(res.ok ? recorderRunning(res.output) : null);
         onToast(res.ok ? (recorderRunning(res.output) ? "Recorder is running" : "Recorder is off") : first || "Recorder command failed");
       } else {
         onToast(first || (res.ok ? "Done" : "Recorder command failed"));

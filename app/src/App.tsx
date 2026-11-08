@@ -8,7 +8,7 @@ import type {
   Settings as SettingsData,
   StatusResult,
 } from "./shared/protocol";
-import { recorderHealth } from "./lib/health";
+import { recorderHealth, recorderRunning } from "./lib/health";
 import { Sidebar, type StatusLine, type View } from "./components/Sidebar";
 import { Opening } from "./components/Opening";
 import { Modal, Toasts, type ToastItem } from "./components/ui";
@@ -65,6 +65,7 @@ export function App() {
   const [skipped, setSkipped] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
   const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [recorderOn, setRecorderOn] = useState<boolean | null>(null);
   const [view, setView] = useState<View>("overview");
   const [company, setCompany] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -129,6 +130,15 @@ export function App() {
     else root.setAttribute("data-theme", theme);
     store("doppel-theme", theme);
   }, [theme]);
+
+  // Ask once at startup whether the recorder process is running, so Settings opens
+  // with the right label; Settings updates this after Check / Turn on / Turn off.
+  useEffect(() => {
+    window.shadow
+      .recorder("status")
+      .then((res) => setRecorderOn(res.ok ? recorderRunning(res.output) : null))
+      .catch(() => setRecorderOn(null));
+  }, []);
 
   useEffect(() => store("doppel-sidebar", collapsed ? "collapsed" : "open"), [collapsed]);
 
@@ -303,7 +313,7 @@ export function App() {
           {view === "apps" && <Apps onToast={toast} />}
           {view === "settings" &&
             (settings ? (
-              <Settings settings={settings} onChange={changeSetting} recorder={recorderLine} theme={theme} onTheme={setTheme} onToast={toast} />
+              <Settings settings={settings} onChange={changeSetting} recorder={recorderLine} running={recorderOn} onRunning={setRecorderOn} theme={theme} onTheme={setTheme} onToast={toast} />
             ) : (
               waiting
             ))}
