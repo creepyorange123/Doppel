@@ -14,3 +14,6 @@ def tmp_data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("SHADOW_DATA_DIR", str(tmp_path))
     return tmp_path
 
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "audit(capture='full', seconds=3600): options for the recorder e2e audit")

@@ -25,7 +25,7 @@ from analyzer import topics
 from analyzer.research import egress, ledger
 from analyzer.research.research import QUERY_TEMPLATES, known_companies as _known_companies
 from recorder import sanitize
-from shared import db, keystore
+from shared import audits, db, keystore
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 SQLITE_HEADER = b"SQLite format 3\x00"
@@ -221,6 +221,46 @@ def check_raw_deleted(conn) -> dict:
                   f"{_plural(analysed, 'analysed request')}: none still holds a body, headers, cookies or address.")
 
 
+# ------------------------------------------------------------------ audits
+
+AUDIT_SLACK_MS = 10_000  # writes land a moment after the request; allow for it
+
+
+def check_only_during_audits(conn) -> dict:
+    title = "Nothing is recorded outside an audit"
+    n_audits = conn.execute("SELECT count(*) FROM audits").fetchone()[0]
+    total, outside = conn.execute(
+        "SELECT count(*), coalesce(sum(a.id IS NULL OR r.captured_at < a.started_at - ? "
+        "OR r.captured_at > coalesce(a.ended_at, a.ends_at) + ?), 0) "
+        "FROM requests r LEFT JOIN audits a ON a.id = r.audit_id", (AUDIT_SLACK_MS, AUDIT_SLACK_MS)).fetchone()
+    if outside:
+        return _check("only_during_audits", title, False,
+                      f"{_plural(outside, 'stored request')} fall outside the audit they belong to.")
+    if total == 0:
+        return _check("only_during_audits", title, True,
+                      f"{_plural(n_audits, 'audit')} so far and no stored requests.")
+    return _check("only_during_audits", title, True,
+                  f"Checked {_plural(total, 'stored request')} across {_plural(n_audits, 'audit')}: "
+                  "each was recorded during the audit it belongs to, for an app you chose.")
+
+
+def check_no_background(conn, *, legacy_login_item: bool, recorder_running: bool) -> dict:
+    title = "Nothing runs in the background"
+    active = audits.running(conn)
+    if legacy_login_item:
+        return _check("no_background", title, False,
+                      "The old always-on recorder's login item is still installed. Remove the certificate "
+                      "in Settings and install it again to clear it.")
+    if recorder_running and active is None:
+        return _check("no_background", title, False, "A recorder process is running with no audit in progress.")
+    if active is not None:
+        return _check("no_background", title, True,
+                      f"An audit is running ({active.label}); its recorder stops on its own when the audit ends. "
+                      "No login item is installed.")
+    return _check("no_background", title, True,
+                  "No audit is running and no recorder process exists. No login item is installed.")
+
+
 # ------------------------------------------------------------------ network
 
 def parse_netstat(text: str, pids: set) -> list[str]:
@@ -273,7 +313,7 @@ def check_no_listeners(pids: set, listeners: Listeners) -> dict:
     if found:
         return _check("no_listeners", title, False, f"Found {_plural(len(found), 'listening port')}: {', '.join(found)}.")
     return _check("no_listeners", title, True,
-                  "Listed the open ports of the app, the analyzer and the recorder just now: none is listening.")
+                  "Listed the open ports of the app, the analyzer and any running audit just now: none is listening.")
 
 
 def _default_ollama_host() -> str:
@@ -380,9 +420,13 @@ def check_zero_network(conn) -> dict:
 
 def run_checks(conn, *, db_file: Path, data_dir: Path, db_key: bytes, pids: set,
                listeners: Listeners = system_listeners, known_companies: set[str] | None = None,
-               ollama_host: str | None = None) -> dict:
+               ollama_host: str | None = None, legacy_login_item: bool = False,
+               recorder_running: bool = False) -> dict:
     known = known_companies if known_companies is not None else _known_companies()
+    audits.settle(conn)
     checks = [
+        check_only_during_audits(conn),
+        check_no_background(conn, legacy_login_item=legacy_login_item, recorder_running=recorder_running),
         check_encrypted(Path(db_file)),
         check_key_not_on_disk(Path(data_dir), db_key, Path(db_file)),
         check_ids_hashed(conn),
@@ -404,5 +448,8 @@ def run_checks(conn, *, db_file: Path, data_dir: Path, db_key: bytes, pids: set,
 
 
 def handle(conn, payload) -> dict:
+    from recorder import service
+
     return run_checks(conn, db_file=db.db_path(), data_dir=db.data_dir(), db_key=keystore.db_key(),
-                      pids=our_pids(db.data_dir()))
+                      pids=our_pids(db.data_dir()), legacy_login_item=service.legacy_login_item_exists(),
+                      recorder_running=service.is_running())

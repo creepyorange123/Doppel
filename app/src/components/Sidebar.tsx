@@ -2,26 +2,25 @@ import type { ComponentType, SVGProps } from "react";
 import { num } from "../lib/format";
 import {
   ActivityIcon,
-  AppsIcon,
   BuildingIcon,
   DashboardIcon,
   PanelCloseIcon,
   PanelOpenIcon,
-  RefreshIcon,
+  RadarIcon,
   ScrollIcon,
   ShieldCheckIcon,
   SlidersIcon,
 } from "./icons";
 
-export type View = "overview" | "companies" | "requests" | "ledger" | "privacy" | "apps" | "settings";
+export type View = "audits" | "overview" | "companies" | "requests" | "ledger" | "privacy" | "settings";
 
 const NAV: { id: View; label: string; icon: ComponentType<SVGProps<SVGSVGElement>> }[] = [
+  { id: "audits", label: "Audits", icon: RadarIcon },
   { id: "overview", label: "Overview", icon: DashboardIcon },
   { id: "companies", label: "Companies", icon: BuildingIcon },
   { id: "requests", label: "Requests", icon: ActivityIcon },
   { id: "ledger", label: "Outgoing calls", icon: ScrollIcon },
   { id: "privacy", label: "Privacy", icon: ShieldCheckIcon },
-  { id: "apps", label: "Apps", icon: AppsIcon },
   { id: "settings", label: "Settings", icon: SlidersIcon },
 ];
 
@@ -37,8 +36,6 @@ export function Sidebar({
   collapsed,
   onToggle,
   status,
-  onRefresh,
-  refreshing,
 }: {
   view: View;
   onNavigate: (v: View) => void;
@@ -46,8 +43,6 @@ export function Sidebar({
   collapsed: boolean;
   onToggle: () => void;
   status: StatusLine[];
-  onRefresh: () => void;
-  refreshing: boolean;
 }) {
   const toggleLabel = collapsed ? "Expand sidebar" : "Collapse sidebar";
   return (
@@ -71,17 +66,6 @@ export function Sidebar({
           </button>
         ))}
       </nav>
-      <button
-        className="refresh-btn"
-        onClick={onRefresh}
-        disabled={refreshing}
-        aria-busy={refreshing}
-        aria-label={collapsed ? "Refresh" : undefined}
-        title="Analyse new traffic and update the report"
-      >
-        <RefreshIcon className={refreshing ? "spin" : undefined} />
-        <span className="nav-label">{refreshing ? "Refreshing…" : "Refresh"}</span>
-      </button>
       <div className="status">
         {status.map((s) => (
           <span key={s.text} className="status-row" title={s.text}>

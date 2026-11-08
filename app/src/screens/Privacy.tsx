@@ -1,11 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
-import type { PrivacyChecks } from "../shared/protocol";
+import type { Audit, PrivacyChecks } from "../shared/protocol";
+import { SelfAudit } from "./SelfAudit";
 import { CheckIcon, RefreshIcon, XIcon } from "../components/icons";
 import { clock } from "../lib/format";
 import { privacySummary } from "../lib/privacy";
 
 /** Live proof of the privacy promises: every row is a check run on this computer just now. */
-export function Privacy() {
+export function Privacy({
+  active,
+  latestSelfAudit,
+  analyzing,
+  onStartSelf,
+  onStop,
+}: {
+  active: Audit | null;
+  latestSelfAudit: Audit | null;
+  analyzing: boolean;
+  onStartSelf: (minutes: number) => void;
+  onStop: () => void;
+}) {
   const [data, setData] = useState<PrivacyChecks | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +52,8 @@ export function Privacy() {
           {running ? "Checking…" : "Run again"}
         </button>
       </header>
+      <SelfAudit active={active} latest={latestSelfAudit} analyzing={analyzing} onStart={onStartSelf} onStop={onStop} />
+      <h2 className="h2 block">Checks on your data</h2>
       {error && <p className="notice notice-error">{error}</p>}
       {!data && !error && <p className="empty">Running checks…</p>}
       {data && summary && (

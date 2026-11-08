@@ -31,35 +31,64 @@ Analyzer → app (reply to a request, exactly one per `id`):
 Analyzer → app (event, not tied to a request; no `id`):
 
 ```json
-{"type": "progress", "payload": {"done": 120, "total": 1240, "label": "Analyzing 1,240 requests since Tuesday 9:14 pm"}}
-{"type": "ready",    "payload": {"version": "0.1.0"}}
+{"type": "progress", "payload": {"done": 120, "total": 1240, "label": "Analyzing 1,240 requests from your Slack audit"}}
+{"type": "ready",    "payload": {"version": "0.2.0"}}
 ```
+
+## Audits
+
+Doppel records nothing in the background. You start an **audit**: pick running apps
+and a duration. For that time only, the recorder captures traffic from those apps
+and every process they spawn; everything else on the computer goes straight to the
+network untouched. When the audit ends the recorder process exits.
+
+An `Audit` is `{id, label, apps: [{path, name, capture: "full"|"metadata_only", is_browser}],
+self_audit, started_at, ends_at, ended_at, status: "running"|"done"|"interrupted"|"failed",
+requests, analyzed, error}`.
 
 ## Request types
 
 | type | payload | result |
 |---|---|---|
 | `hello` | `{}` | `{version, db_path_set}` |
-| `status` | `{}` | `{request_count, unanalyzed_count, install_at, last_opened_at, recorder_heartbeat_at, consent_at}` |
-| `list_apps` | `{}` | `{mode, apps: [{key, path, name, requests, last_seen_at, running, rule, rule_source}], domains: [{domain, rule}]}` |
-| `set_app_rule` | `{key, rule: "track"\|"metadata_only"\|"dont_track"\|null}` | `{ok}` |
-| `set_domain_rule` | `{domain, rule \| null}` | `{ok}` |
-| `set_tracking_mode` | `{mode: "blocklist"\|"allowlist"}` | `{ok}` |
-| `delete_app_data` | `{key}` | `{deleted}` |
-
-| `analyze_since_last_open` | `{}` | `{analyzed, since, finished_at}`; streams `progress` events |
-| `get_settings` | `{}` | `{zero_network, gpc, local_ai, california, tracking_mode}` |
-| `set_setting` | `{key: zero_network\|gpc\|local_ai\|california, value: bool}` | `{ok}` |
+| `status` | `{}` | `{request_count, unanalyzed_count, install_at, consent_at, active_audit_id}` |
+| `list_running_apps` | `{}` | `{apps: [{path, name, processes, is_browser, hint}]}`: visible, non-system apps running now, helpers folded into their app |
+| `list_audits` | `{}` | `{audits: [Audit]}`, newest first |
+| `audit_live` | `{audit_id}` | `{audit, requests, last_at, apps: [{name, requests}], processes: [{app, process, requests}], domains: [{domain, requests}]}` |
+| `analyze_audit` | `{audit_id?}` | `{analyzed, audit_id, finished_at}`; streams `progress`. No id: every unanalysed request |
+| `delete_audit` | `{audit_id}` | `{deleted}` (requests removed with it) |
+| `self_audit_result` | `{audit_id}` | `{audit, connections: [{process, domain, requests, in_ledger}], ledger_entries, unexpected, verdict}` |
+| `list_domain_rules` | `{}` | `{domains: [{domain, rule}]}` |
+| `set_domain_rule` | `{domain, rule: "metadata_only"\|"dont_track"\|null}` | `{ok}` |
+| `get_settings` | `{}` | `{zero_network, local_ai, california}` |
+| `set_setting` | `{key: zero_network\|local_ai\|california, value: bool}` | `{ok}` |
 | `ledger_verify` | `{}` | `{ok, entries, broken_at, latest_hash}` |
 | `ledger_list` | `{}` | `{entries: [{id, sent_at, destination, payload, hash}], latest_hash}` |
-| `report` | `{}` | `{summary: {since, requests, companies, high_concern}, companies: [...], tier_requests: {tier: n}, by_day: [{date, counts: {tier: n}}]}` |
-| `list_requests` | `{limit?}` (default 1000) | `{requests: [{id, captured_at, app_name, dest_domain, company, summary, topic, sensitive, score, tier, breakdown}], truncated}` |
-| `company_detail` | `{company}` | `{card, requests: [{..., score, tier, breakdown}], actions, california}` |
-| `take_action` | `{company, action: block\|strip\|opt-out\|letter}` | `{ok, letter?, domains?}` |
-| `undo_action` | `{company, action: block\|strip}` | `{ok}` |
+| `report` | `{audit_id}` | `{audit, summary: {requests, companies, high_concern}, apps: [{name, is_browser, requests, companies, max_score, tier, processes: [{name, requests}], sites? (browsers), destinations? (apps): [{name, requests, companies, max_score, tier, own?}]}], companies: [...], tier_requests, by_day}` |
+| `list_requests` | `{audit_id, limit?}` (default 1000) | `{requests: [{id, captured_at, app_name, process_name, dest_domain, company, summary, topic, sensitive, score, tier, breakdown}], truncated}` |
+| `company_detail` | `{company, audit_id}` | `{card, requests, actions, california}` |
+| `take_action` | `{company, action: opt-out\|letter}` | `{ok, letter?}` |
+| `export_blocklist` | `{audit_id, format: ublock\|hosts\|domains\|little_snitch, min_tier?}` (default Profile building) | `{format, min_tier, domains, count, works_with, skipped, filename, content}`: tracker domains for your own blocker, never a site you visited |
+| `privacy_checks` | `{}` | `{checks: [{id, title, ok, detail}], ran_at, passed, failed}` |
 
-Recorder controls (`install`, `uninstall`, `status`) are not analyzer messages: the
-main process runs `python -m recorder <action>` itself, on the `shadow:recorder` channel.
+Main process only (the renderer is refused; see `MAIN_ONLY_REQUEST_TYPES`):
+
+| type | payload | result |
+|---|---|---|
+| `create_audit` | `{apps: [{path, name, capture?, pids?}], minutes, label?, self_audit?}` | `{audit}` |
+| `finish_audit` | `{audit_id, status: "done"\|"interrupted"\|"failed", error?}` | `{audit}` (no change if already finished) |
+
+## Main-process channels
+
+- `shadow:audit` (`window.shadow.audit(action, payload)`): `start {apps, minutes, label?}`,
+  `self {minutes}`, `stop`, `state`, each returning `{ok, audit, error?}`. The main process
+  creates the audit, runs `python -m recorder audit --id N` as its child, and stops it at the
+  end time, on `stop`, or when Doppel quits. It sends `{type: "audit", payload: {audit_id,
+  state: "started"|"ended", ok, message?}}` events.
+- `shadow:save` (`window.shadow.saveFile(filename, content)`): shows a save dialog and writes
+  the text (at most 1 MB) to the file the user picks; used to save exported blocklists.
+- `shadow:recorder` (`window.shadow.recorder(action)`): `install` (consent + certificate),
+  `uninstall`, `status`.
 
 Every new type is added to `shared/protocol.py`, `app/src/shared/protocol.ts` (which is
 the main process allowlist) and `analyzer/handlers.py` together.

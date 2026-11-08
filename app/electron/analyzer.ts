@@ -32,6 +32,11 @@ export class AnalyzerClient {
 
   constructor(private onEvent: (event: AnalyzerEvent) => void) {}
 
+  /** The analyzer's process id, for the self-audit target (null if not running). */
+  get pid(): number | null {
+    return this.proc?.pid ?? null;
+  }
+
   start(): void {
     const root = repoRoot();
     // -s: ignore user site-packages. -m with cwd=root imports only the repo's packages.

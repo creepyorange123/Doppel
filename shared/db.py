@@ -22,14 +22,15 @@ import sqlcipher3
 from shared import keystore
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 APP_DIR_NAME = "ShadowProfile"
 
 SETTINGS_DEFAULTS = {
-    "tracking_mode": "blocklist",  # or "allowlist"
     "zero_network": "0",
-    "gpc": "0",
 }
+
+# Settings from the always-on recorder that nothing reads any more.
+OBSOLETE_SETTINGS = ("tracking_mode", "gpc", "last_opened_at", "last_run_since", "store_raw_content")
 
 
 def now_ms() -> int:
@@ -82,8 +83,49 @@ def connect(path: Path | str | None = None, key: bytes | None = None) -> sqlciph
     return conn
 
 
+def _columns(conn: sqlcipher3.Connection, table: str) -> set[str]:
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def migrate_to_audits(conn: sqlcipher3.Connection) -> bool:
+    """Version 1 (always-on recording) -> 2 (audits).
+
+    Requests recorded in the background belong to no audit, so they are deleted
+    with everything derived from them, along with per-app track rules and
+    block/strip actions. Company research and the outgoing-calls ledger are kept.
+    Returns True if anything was migrated.
+    """
+    if "requests" not in {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}:
+        return False
+    if "audit_id" in _columns(conn, "requests"):
+        return False
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if "audit_id" not in _columns(conn, "requests"):  # re-check under the write lock
+            conn.execute("DROP TABLE IF EXISTS scores")
+            conn.execute("DROP TABLE IF EXISTS findings")
+            conn.execute("DROP TABLE requests")
+            for table in ("id_sightings", "topic_cache", "payload_cache", "breakage"):
+                if _columns(conn, table):
+                    conn.execute(f"DELETE FROM {table}")
+            if _columns(conn, "app_rules"):
+                conn.execute("DELETE FROM app_rules WHERE kind != 'domain' OR rule NOT IN ('metadata_only', 'dont_track')")
+            if _columns(conn, "actions"):
+                conn.execute("DELETE FROM actions WHERE action IN ('block', 'strip')")
+            for key in OBSOLETE_SETTINGS:
+                conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    checkpoint_truncate(conn)  # secure_delete zeroed the pages; fold the WAL too
+    conn.execute("VACUUM")
+    return True
+
+
 def init(conn: sqlcipher3.Connection) -> None:
     """Create tables and default settings. Safe to call on every start."""
+    migrate_to_audits(conn)
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
     ts = now_ms()
     defaults = {"install_at": str(ts), "schema_version": SCHEMA_VERSION, **SETTINGS_DEFAULTS}
@@ -92,6 +134,8 @@ def init(conn: sqlcipher3.Connection) -> None:
             "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
             (key, value, ts),
         )
+    if get_setting(conn, "schema_version") != SCHEMA_VERSION:
+        set_setting(conn, "schema_version", SCHEMA_VERSION)
 
 
 def get_setting(conn: sqlcipher3.Connection, key: str, default: str | None = None) -> str | None:

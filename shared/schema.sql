@@ -1,5 +1,7 @@
--- Shadow Profile data model (Phase 0).
--- One SQLite file, encrypted with SQLCipher. The recorder writes `requests`;
+-- Shadow Profile data model.
+-- One SQLite file, encrypted with SQLCipher. Nothing is recorded in the
+-- background: the recorder runs only during an audit you start, and every
+-- request belongs to one audit. The recorder writes `requests`;
 -- the analyzer fills the rest. The Electron app never opens this file
 -- directly: it asks the analyzer over IPC (see shared/PROTOCOL.md).
 --
@@ -8,9 +10,9 @@
 
 PRAGMA foreign_keys = ON;
 
--- Key/value settings. Known keys (see shared/db.py SETTINGS_KEYS):
---   install_at, last_opened_at, tracking_mode ('blocklist' | 'allowlist'),
---   zero_network ('0' | '1'), gpc ('0' | '1'), recorder_heartbeat_at,
+-- Key/value settings. Known keys:
+--   install_at, consent_at, zero_network ('0' | '1'), local_ai ('0' | '1'),
+--   california ('0' | '1'), recorder_heartbeat_at,
 --   recorder_status (JSON: mode, ca status, last error), schema_version
 CREATE TABLE IF NOT EXISTS settings (
     key         TEXT PRIMARY KEY,
@@ -18,29 +20,43 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at  INTEGER NOT NULL
 );
 
--- Per-app and per-domain capture rules. The recorder reloads these within
--- seconds without a restart.
+-- One row per audit: "use these apps as you normally would for this long".
+CREATE TABLE IF NOT EXISTS audits (
+    id          INTEGER PRIMARY KEY,
+    label       TEXT NOT NULL,
+    apps        TEXT NOT NULL,          -- JSON [{path, name, capture: full | metadata_only, pids?}]
+    self_audit  INTEGER NOT NULL DEFAULT 0,  -- 1: Doppel auditing its own processes
+    started_at  INTEGER NOT NULL,
+    ends_at     INTEGER NOT NULL,       -- planned end; the recorder stops itself here
+    ended_at    INTEGER,
+    status      TEXT NOT NULL DEFAULT 'running'
+                CHECK (status IN ('running', 'done', 'interrupted', 'failed')),
+    error       TEXT,                   -- fixed wording only, never captured content
+    analyzed_at INTEGER
+);
+
+-- Domains you never want recorded (or only as metadata), in any audit.
+-- Older databases may still have 'app' and 'action' rows; nothing reads them.
 CREATE TABLE IF NOT EXISTS app_rules (
     id          INTEGER PRIMARY KEY,
     kind        TEXT NOT NULL CHECK (kind IN ('app', 'domain', 'action')),
-    match       TEXT NOT NULL,          -- app path/name, or a domain
-    -- app/domain: track | metadata_only | dont_track
-    -- action (phase 6, per domain, applies across apps): block | strip
+    match       TEXT NOT NULL,          -- a domain
     rule        TEXT NOT NULL CHECK (rule IN ('track', 'metadata_only', 'dont_track', 'block', 'strip')),
     source      TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user', 'auto')),
-                                        -- 'auto': set by the recorder (e.g. certificate pinning)
     updated_at  INTEGER NOT NULL,
     UNIQUE (kind, match)
 );
 
--- One row per captured request. Written only by the recorder.
+-- One row per captured request. Written only by the recorder, only during an audit.
 -- Never contains Cookie / Set-Cookie / Authorization values, passwords or
 -- search queries (see recorder/sanitize.py).
 CREATE TABLE IF NOT EXISTS requests (
     id              INTEGER PRIMARY KEY,
+    audit_id        INTEGER NOT NULL REFERENCES audits (id) ON DELETE CASCADE,
     captured_at     INTEGER NOT NULL,
-    app_name        TEXT,
+    app_name        TEXT,               -- the audited app
     app_path        TEXT,
+    process_name    TEXT,               -- the process that sent it (the app or one it spawned)
     page_site       TEXT,               -- site of the page that caused it (from Referer/Origin)
     page_url        TEXT,               -- sanitized page URL
     dest_domain     TEXT NOT NULL,
@@ -60,6 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_requests_captured ON requests (captured_at);
 CREATE INDEX IF NOT EXISTS idx_requests_unanalyzed ON requests (analyzed) WHERE analyzed = 0;
 CREATE INDEX IF NOT EXISTS idx_requests_dest ON requests (dest_domain);
 CREATE INDEX IF NOT EXISTS idx_requests_app ON requests (app_path);
+CREATE INDEX IF NOT EXISTS idx_requests_audit ON requests (audit_id);
 
 CREATE TABLE IF NOT EXISTS findings (
     request_id  INTEGER PRIMARY KEY REFERENCES requests (id) ON DELETE CASCADE,
@@ -135,6 +152,6 @@ CREATE TABLE IF NOT EXISTS ledger (
 CREATE TABLE IF NOT EXISTS actions (
     id          INTEGER PRIMARY KEY,
     company     TEXT NOT NULL,
-    action      TEXT NOT NULL CHECK (action IN ('block', 'strip', 'opt-out', 'letter')),
+    action      TEXT NOT NULL CHECK (action IN ('block', 'strip', 'opt-out', 'letter')),  -- only opt-out / letter are written now
     taken_at    INTEGER NOT NULL
 );

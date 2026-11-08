@@ -7,6 +7,7 @@ import pytest
 from analyzer import datatypes as dt
 from analyzer import identify, score
 from shared import db
+from tests.helpers import make_audit
 
 KEY = b"h" * 32
 
@@ -104,7 +105,9 @@ def test_binary_or_empty_bodies():
 
 @pytest.fixture
 def conn(tmp_path, db_key):
-    return db.open_db(tmp_path / "t.db", db_key)
+    c = db.open_db(tmp_path / "t.db", db_key)
+    make_audit(c)  # audit 1, which the requests below belong to
+    return c
 
 
 class FakeModel:
@@ -214,13 +217,12 @@ def test_score_ignores_data_flags_for_first_party():
 
 def test_requests_list_marks_sensitive_data_even_on_a_neutral_page(conn):
     from analyzer import handlers
-    conn.execute("INSERT INTO requests (id, captured_at, dest_domain, analyzed) VALUES (1, ?, 'api.mixpanel.com', 1)",
+    conn.execute("INSERT INTO requests (audit_id, id, captured_at, dest_domain, analyzed) VALUES (1, 1, ?, 'api.mixpanel.com', 1)",
                  (db.now_ms(),))
     conn.execute("INSERT INTO findings (request_id, company, topic, summary) VALUES (1, 'Mixpanel', 'Shopping', 's')")
     conn.execute("INSERT INTO scores (request_id, score, tier, breakdown) VALUES (1, 60, 'Profile building', ?)",
                  (json.dumps([{"signal": "sensitive_data", "label": "x", "points": 30}]),))
-    db.set_setting(conn, "last_run_since", "0")
-    r = handlers.handle(conn, "list_requests", {})
+    r = handlers.handle(conn, "list_requests", {"audit_id": 1})
     assert r["requests"][0]["sensitive"] is True
 
 

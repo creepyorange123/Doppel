@@ -6,13 +6,11 @@ from analyzer.research import ledger
 from shared import db
 from shared.protocol import ProtocolError
 
-TOGGLES = ("zero_network", "gpc", "local_ai", "california")
+TOGGLES = ("zero_network", "local_ai", "california")
 
 
 def get_settings(conn, payload) -> dict:
-    out = {k: db.get_setting(conn, k, "0") == "1" for k in TOGGLES}
-    out["tracking_mode"] = db.get_setting(conn, "tracking_mode", "blocklist")
-    return out
+    return {k: db.get_setting(conn, k, "0") == "1" for k in TOGGLES}
 
 
 def set_setting(conn, payload) -> dict:

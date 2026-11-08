@@ -44,6 +44,12 @@ export function RequestDrawer({
           <dt>App</dt>
           <dd>{request.app_name ?? "Unknown app"}</dd>
         </div>
+        {request.process_name && (
+          <div>
+            <dt>Process</dt>
+            <dd>{request.process_name}</dd>
+          </div>
+        )}
         {topic && (
           <div>
             <dt>Topic</dt>

@@ -1,4 +1,12 @@
-"""mitmproxy addon: decide, sanitize and write every request to the encrypted log."""
+"""mitmproxy addon for one audit: attribute, sanitize and write each request from
+the audited apps to the encrypted log.
+
+The redirector already sends only the audited apps' connections here (see
+recorder/scope.py). As a second line of defence, a connection that can't be tied
+to an audited app passes through untouched and is never recorded.
+
+Audits observe; they never change traffic (no blocking, stripping or added headers).
+"""
 
 from __future__ import annotations
 
@@ -15,7 +23,9 @@ from mitmproxy.connection import Client
 
 from recorder import procinfo, rules, sanitize
 from recorder.procinfo import AppInfo
+from recorder.scope import Scope, process_label
 from shared import db
+from shared.audits import AuditApp
 from shared.keystore import keyed_hash
 
 log = logging.getLogger("shadow.recorder")
@@ -83,7 +93,7 @@ class Writer(threading.Thread):
     def _flush(self, batch: list[dict[str, Any]]) -> None:
         if not batch:
             return
-        cols = ("captured_at", "app_name", "app_path", "page_site", "page_url", "dest_domain", "method",
+        cols = ("audit_id", "captured_at", "app_name", "app_path", "process_name", "page_site", "page_url", "dest_domain", "method",
                 "url", "status", "headers", "cookies", "body", "body_truncated", "size_bytes", "flags",
                 "metadata_only")
         sql = f"INSERT INTO requests ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
@@ -139,16 +149,19 @@ def _json(v: Any) -> str | None:
 class ShadowRecorder:
     """The addon. ``ca_ready`` False means TLS is never intercepted (metadata only)."""
 
-    def __init__(self, rulebook: rules.RuleBook, writer: Writer, hmac_key: bytes, *, ca_ready: bool,
-                 devlog=None):
+    def __init__(self, scope: Scope, rulebook: rules.RuleBook, writer: Writer, hmac_key: bytes, *,
+                 audit_id: int, ca_ready: bool, devlog=None):
+        self.scope = scope
         self.rules = rulebook
+        self.audit_id = audit_id
         self.devlog = devlog  # recorder.devlog.TrafficLog, development only; None in normal use
         self.writer = writer
         self.hmac_key = hmac_key
         self.ca_ready = ca_ready
         self.apps: dict[str, AppInfo] = {}
+        self.targets: dict[str, AuditApp | None] = {}
         self.decisions: dict[str, str] = {}
-        self.tls_ok: set[tuple[str, str]] = set()          # (app, site) handshakes that succeeded
+        self.tls_ok: set[tuple[str, str]] = set()          # (process, site) handshakes that succeeded
         self.disconnects: dict[tuple[str, str], int] = {}  # dropped handshakes, see tls_failed_client
 
     # ------------------------------------------------------------------ helpers
@@ -159,20 +172,45 @@ class ShadowRecorder:
     def app_for(self, client: Client) -> AppInfo:
         return self.apps.get(client.id, procinfo.UNKNOWN)
 
+    def target_for(self, client: Client) -> AuditApp | None:
+        return self.targets.get(client.id)
+
+    @staticmethod
+    def _key(target: AuditApp) -> str:
+        return target.path or target.name
+
     def decide(self, client: Client, domain: str | None) -> str:
+        target = self.target_for(client)
+        if target is None:
+            return rules.DONT_TRACK
         app = self.app_for(client)
-        return self.rules.decide(app.path, app.name, domain, process_known=app.known)
+        if rules.is_system_process(app.path, app.name):
+            return rules.DONT_TRACK
+        base = rules.METADATA_ONLY if target.capture == "metadata_only" else rules.TRACK
+        return self.rules.decide(self._key(target), domain, base)
+
+    def _who(self, client: Client) -> dict[str, Any]:
+        target = self.target_for(client)
+        app = self.app_for(client)
+        return {"audit_id": self.audit_id, "app_name": target.name if target else "Unknown app",
+                "app_path": target.path if target else None,
+                "process_name": process_label(app.path) or app.name or (target.name if target else None)}
 
     def metadata_row(self, client: Client, domain: str, flags: list[dict[str, str]] | None = None,
                      size: int | None = None) -> None:
-        app = self.app_for(client)
+        if not domain or sanitize.is_ip_literal(domain):
+            return  # no hostname: nothing useful to say about the recipient
         self.writer.put({
-            "captured_at": db.now_ms(), "app_name": app.name or "Unknown app", "app_path": app.path,
+            **self._who(client), "captured_at": db.now_ms(),
             "dest_domain": domain.lower(), "size_bytes": size, "flags": _json(flags or []),
             "metadata_only": 1, "body_truncated": 0,
         })
 
     # -------------------------------------------------------------------- hooks
+
+    def running(self) -> None:
+        """Servers are up: install the real process filter (paths can't go in the mode string)."""
+        set_intercept(self.scope.spec())
 
     def configure(self, updated) -> None:
         # Security checklist #11: upstream certificates are always verified.
@@ -180,10 +218,13 @@ class ShadowRecorder:
             raise RuntimeError("ssl_insecure must never be enabled")
 
     def client_connected(self, client: Client) -> None:
-        self.apps[client.id] = procinfo.take(client.peername)
+        info = procinfo.take(client.peername)
+        self.apps[client.id] = info
+        self.targets[client.id] = self.scope.target_for(info.pid, info.path)
 
     def client_disconnected(self, client: Client) -> None:
         self.apps.pop(client.id, None)
+        self.targets.pop(client.id, None)
         self.decisions.pop(client.id, None)
 
     def tls_clienthello(self, data: tls.ClientHelloData) -> None:
@@ -195,12 +236,7 @@ class ShadowRecorder:
         self.decisions[client.id] = decision
         if self.devlog:
             self.devlog.write("TLS", self.app_for(client).name, decision, sni)
-        snap = self.rules.snapshot()
         if decision == rules.TRACK:
-            return
-        if self.ca_ready and (snap.blocked(sni) or snap.stripped(sni)):
-            # Decrypt only to enforce your block/strip choice; content is still
-            # not stored beyond what this app's rule allows.
             return
         # Not decrypted: the connection passes through untouched.
         data.ignore_connection = True
@@ -211,7 +247,7 @@ class ShadowRecorder:
     def _tls_key(self, client: Client) -> tuple[str, str] | None:
         sni = (client.sni or "").lower()
         app = self.app_for(client)
-        who = app.path or app.name
+        who = app.path or app.name or (str(app.pid) if app.pid else None)
         return (who, sni) if sni and who else None
 
     def tls_established_client(self, data: tls.TlsData) -> None:
@@ -244,8 +280,10 @@ class ShadowRecorder:
         elif kind != "rejected":
             return
         # The app rejected our certificate: most likely certificate pinning.
-        app = self.app_for(client)
-        switched = self.rules.report_pinning_failure(app.path, app.name, sni)
+        target = self.target_for(client)
+        if target is None:
+            return
+        switched = self.rules.report_pinning_failure(self._key(target), sni)
         flags = [{"flag": "certificate_pinned", "where": "tls"}]
         if switched:
             flags.append({"flag": "app_switched_to_metadata_only", "where": "tls"})
@@ -262,36 +300,14 @@ class ShadowRecorder:
             nextlayer.layer = layers.UDPLayer(context)
 
     def udp_start(self, flow: udp.UDPFlow) -> None:
+        # HTTP/3 is refused so the app retries over regular HTTPS, which is recorded
+        # with its hostname. The refused attempt itself is not stored (it has only an IP).
         addr = flow.server_conn.address
         if addr and addr[1] == 443:
-            decision = self.decide(flow.client_conn, None)
             if self.devlog:
-                self.devlog.write("QUIC", self.app_for(flow.client_conn).name, decision, str(addr[0]), note="blocked")
-            if decision != rules.DONT_TRACK:
-                self.metadata_row(flow.client_conn, str(addr[0]), [{"flag": "quic_blocked", "where": "udp"}])
+                self.devlog.write("QUIC", self.app_for(flow.client_conn).name, self.decide(flow.client_conn, None),
+                                  str(addr[0]), note="blocked")
             flow.kill()
-
-    def request(self, flow: http.HTTPFlow) -> None:
-        """Phase 6 actions, applied before anything is sent upstream."""
-        host = (flow.request.pretty_host or "").lower()
-        snap = self.rules.snapshot()
-        if snap.blocked(host):
-            flow.metadata["shadow_blocked"] = True
-            flow.response = http.Response.make(204)
-            return
-        if snap.stripped(host):
-            flow.metadata["shadow_stripped"] = True
-            flow.request.headers.pop("cookie", None)
-            for name in list(flow.request.headers.keys()):
-                if sanitize.SENSITIVE_HEADER_RE.search(name) and name.lower() not in ("authorization",):
-                    flow.request.headers.pop(name, None)
-            q = flow.request.query
-            for key in list(q.keys()):
-                value = q.get(key, "")
-                if sanitize.looks_like_id(value) or sanitize.HEX_HASH_RE.match(value) or sanitize.EMAIL_RE.match(value):
-                    del q[key]
-        if snap.gpc:
-            flow.request.headers["Sec-GPC"] = "1"
 
     def response(self, flow: http.HTTPFlow) -> None:
         self._record(flow)
@@ -316,7 +332,7 @@ class ShadowRecorder:
     def _devlog_http(self, flow: http.HTTPFlow) -> None:
         req = flow.request
         host = (req.pretty_host or req.host or "").lower()
-        notes = [k.removeprefix("shadow_") for k in ("shadow_blocked", "shadow_stripped") if flow.metadata.get(k)]
+        notes = []
         if flow.error:
             notes.append(f"error: {flow.error.msg}")
         self.devlog.write("HTTP", self.app_for(flow.client_conn).name, self.decide(flow.client_conn, host),
@@ -330,12 +346,9 @@ class ShadowRecorder:
         decision = self.decide(client, host)
         if decision == rules.DONT_TRACK:
             return
-        if sanitize.is_search_suggestion(host, req.path):
+        if sanitize.is_search_suggestion(host, req.path) or sanitize.is_ip_literal(host):
             return
         if sanitize.is_dns_over_https(host, req.path, list(req.headers.items(multi=True))):
-            return
-        if flow.metadata.get("shadow_blocked"):
-            self.metadata_row(client, host, [{"flag": "blocked_by_you", "where": "recorder"}])
             return
 
         size = len(req.raw_content or b"") + (len(flow.response.raw_content or b"") if flow.response else 0)
@@ -357,15 +370,10 @@ class ShadowRecorder:
         )
         if stored is None:
             return
-        if not self.rules.snapshot().store_bodies:
-            stored.body = None
-        if flow.metadata.get("shadow_stripped"):
-            stored.flags.append({"flag": "identifiers_stripped", "where": "recorder"})
 
-        app = self.app_for(client)
         self.writer.put({
+            **self._who(client),
             "captured_at": int((req.timestamp_start or time.time()) * 1000),
-            "app_name": app.name or "Unknown app", "app_path": app.path,
             "page_site": stored.page_site, "page_url": stored.page_url,
             "dest_domain": stored.dest_domain, "method": stored.method, "url": stored.url,
             "status": flow.response.status_code if flow.response else None,
@@ -373,3 +381,12 @@ class ShadowRecorder:
             "body": stored.body, "body_truncated": int(stored.body_truncated),
             "size_bytes": size, "flags": _json(stored.flags), "metadata_only": 0,
         })
+
+
+def set_intercept(spec: str) -> None:
+    """Point the running local redirector at exactly these processes."""
+    from mitmproxy.proxy import mode_servers
+
+    server = mode_servers.LocalRedirectorInstance._server
+    if server is not None:
+        server.set_intercept(spec)

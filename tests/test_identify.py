@@ -6,13 +6,16 @@ import pytest
 from analyzer import identify, topics, trackers
 from shared import db
 from shared.keystore import keyed_hash
+from tests.helpers import make_audit
 
 KEY = b"h" * 32
 
 
 @pytest.fixture
 def conn(tmp_path, db_key):
-    return db.open_db(tmp_path / "t.db", db_key)
+    c = db.open_db(tmp_path / "t.db", db_key)
+    make_audit(c)  # audit 1, which the requests below belong to
+    return c
 
 
 @pytest.fixture
@@ -127,7 +130,7 @@ def test_topic_cached_per_page(conn):
 
 
 def test_identify_step_writes_findings(conn, ctx):
-    conn.execute("INSERT INTO requests (id, captured_at, dest_domain, flags) VALUES (1, 1, 'stats.g.doubleclick.net', '[]')")
+    conn.execute("INSERT INTO requests (audit_id, id, captured_at, dest_domain, flags) VALUES (1, 1, 1, 'stats.g.doubleclick.net', '[]')")
     identify.make_step(ctx)(conn, row())
     company, category, topic, summary = conn.execute(
         "SELECT company, category, topic, summary FROM findings WHERE request_id=1").fetchone()

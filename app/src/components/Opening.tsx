@@ -1,8 +1,8 @@
 import type { ProgressEvent } from "../shared/protocol";
 import { num } from "../lib/format";
 
-/** Full-window progress while steps 1-4 run on open. */
-export function Opening({ progress, onSkip }: { progress: ProgressEvent | null; onSkip: () => void }) {
+/** Full-window "getting ready" while the analyzer starts. */
+export function Opening({ progress, onSkip }: { progress: ProgressEvent | null; onSkip?: () => void }) {
   const total = progress?.total ?? 0;
   const done = progress?.done ?? 0;
   const frac = total > 0 ? Math.min(1, done / total) : 0;
@@ -22,9 +22,11 @@ export function Opening({ progress, onSkip }: { progress: ProgressEvent | null; 
             </span>
           )}
         </div>
-        <button className="btn btn-quiet" onClick={onSkip}>
-          Skip
-        </button>
+        {onSkip && (
+          <button className="btn btn-quiet" onClick={onSkip}>
+            Skip
+          </button>
+        )}
       </div>
     </div>
   );

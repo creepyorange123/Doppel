@@ -1,8 +1,10 @@
-"""Decide, per connection, whether to track, keep metadata only, or not track.
+"""Decide, per connection in an audit, whether to record it fully, keep metadata
+only, or not record it.
 
-Inputs: the sending app, the destination domain, the ``app_rules`` table and the
-``tracking_mode`` setting. Rules are reloaded from the database every few
-seconds, so changes from the app apply without restarting the recorder.
+Inputs: the audited app's capture setting (full or metadata only), your domain
+rules (``app_rules`` rows of kind 'domain'), and certificate pinning seen during
+this audit. Domain rules are reloaded every few seconds, so changes apply to a
+running audit.
 """
 
 from __future__ import annotations
@@ -22,13 +24,13 @@ _STRICTNESS = {TRACK: 0, METADATA_ONLY: 1, DONT_TRACK: 2}
 
 RELOAD_SECONDS = 2.0
 
-# Never logged; their traffic passes through untouched.
+# Never recorded, and can't be chosen for an audit.
 SYSTEM_PREFIXES_MAC = ("/system/", "/usr/libexec/", "/usr/sbin/")
 SYSTEM_PREFIXES_WIN = ("c:\\windows\\",)
 SYSTEM_NAMES = frozenset({"system", "idle", "registry", "secure system", "memory compression"})
 
-# Pinned-certificate failures on this many distinct domains switch the whole
-# app to metadata only.
+# Pinned-certificate failures on this many distinct domains switch the app to
+# metadata only for the rest of the audit.
 PINNING_APP_THRESHOLD = 3
 
 
@@ -75,62 +77,29 @@ def strictest(*rules: str | None) -> str:
 
 @dataclass
 class RuleSnapshot:
-    mode: str = "blocklist"
-    app_rules: dict[str, str] = field(default_factory=dict)
     domain_rules: dict[str, str] = field(default_factory=dict)
-    # Stretch goal from the plan: setting store_raw_content = '0' keeps only flags.
-    store_bodies: bool = True
-    # Phase 6 actions, applied across all apps.
-    block_domains: set[str] = field(default_factory=set)
-    strip_domains: set[str] = field(default_factory=set)
-    gpc: bool = False
 
-    def _has(self, domains: set[str], host: str | None) -> bool:
-        return bool(host) and any(s in domains for s in domain_suffixes(host))
-
-    def blocked(self, host: str | None) -> bool:
-        return self._has(self.block_domains, host)
-
-    def stripped(self, host: str | None) -> bool:
-        return not self.blocked(host) and self._has(self.strip_domains, host)
-
-    def decide(self, app_path: str | None, app_name: str | None, domain: str | None,
-               *, process_known: bool = True) -> str:
-        if is_system_process(app_path, app_name):
-            return DONT_TRACK
-
-        app_key = normalize_app_path(app_path) or (app_name or "").lower() or None
-        app_rule = self.app_rules.get(app_key) if app_key else None
-        if app_rule is None and app_name:
-            app_rule = self.app_rules.get(app_name.lower())
-
-        if app_rule is None:
-            app_rule = DONT_TRACK if self.mode == "allowlist" else TRACK
-        if not process_known and app_rule == TRACK and self.mode != "fallback":
-            # We could not tell which app sent it: keep metadata only.
-            app_rule = METADATA_ONLY
-
+    def decide(self, domain: str | None, base: str = TRACK) -> str:
         domain_rule = None
         if domain:
             for suffix in domain_suffixes(domain):
                 if suffix in self.domain_rules:
                     domain_rule = self.domain_rules[suffix]
                     break
-        return strictest(app_rule, domain_rule)
+        return strictest(base, domain_rule)
 
 
 class RuleBook:
-    """Thread-safe, auto-reloading view of the rules in the database."""
+    """Thread-safe, auto-reloading view of the domain rules, plus pinning seen in this audit."""
 
-    def __init__(self, conn, *, reload_seconds: float = RELOAD_SECONDS, fallback_mode: bool = False):
+    def __init__(self, conn, *, reload_seconds: float = RELOAD_SECONDS):
         self._conn = conn
         self._lock = threading.Lock()
         self._loaded_at = 0.0
         self._reload_seconds = reload_seconds
-        self._fallback = fallback_mode
         self._snapshot = RuleSnapshot()
-        # (app_key, domain) pairs where the app rejected our certificate.
-        self._pinned: set[tuple[str, str]] = set()
+        self._pinned: set[tuple[str, str]] = set()  # (app key, domain) where the app rejected our certificate
+        self._metadata_apps: set[str] = set()       # apps switched to metadata only by pinning
 
     def snapshot(self) -> RuleSnapshot:
         with self._lock:
@@ -140,60 +109,33 @@ class RuleBook:
             return self._snapshot
 
     def _load(self) -> RuleSnapshot:
-        mode = db.get_setting(self._conn, "tracking_mode", "blocklist")
-        if mode not in ("blocklist", "allowlist"):
-            mode = "blocklist"
-        snap = RuleSnapshot(
-            mode="fallback" if self._fallback and mode == "blocklist" else mode,
-            store_bodies=db.get_setting(self._conn, "store_raw_content", "1") != "0",
-            gpc=db.get_setting(self._conn, "gpc", "0") == "1",
-        )
-        for kind, match, rule in self._conn.execute("SELECT kind, match, rule FROM app_rules"):
-            if kind == "action":
-                d = match.lower().strip(".")
-                (snap.block_domains if rule == "block" else snap.strip_domains).add(d)
-                continue
-            if rule not in _STRICTNESS:
-                continue
-            if kind == "app":
-                snap.app_rules[normalize_app_path(match) or match.lower()] = rule
-            elif kind == "domain":
+        snap = RuleSnapshot()
+        for match, rule in self._conn.execute("SELECT match, rule FROM app_rules WHERE kind = 'domain'"):
+            if rule in (METADATA_ONLY, DONT_TRACK):
                 snap.domain_rules[match.lower().lstrip(".").rstrip(".")] = rule
         return snap
 
-    def decide(self, app_path: str | None, app_name: str | None, domain: str | None,
-               *, process_known: bool = True) -> str:
-        rule = self.snapshot().decide(app_path, app_name, domain, process_known=process_known)
-        if rule == TRACK and domain and self._app_key(app_path, app_name) is not None:
-            if (self._app_key(app_path, app_name), domain.lower()) in self._pinned:
-                return METADATA_ONLY
+    def decide(self, app_key: str | None, domain: str | None, base: str = TRACK) -> str:
+        rule = self.snapshot().decide(domain, base)
+        if rule == TRACK and app_key is not None:
+            with self._lock:
+                if app_key in self._metadata_apps or (domain and (app_key, domain.lower()) in self._pinned):
+                    return METADATA_ONLY
         return rule
 
-    @staticmethod
-    def _app_key(app_path: str | None, app_name: str | None) -> str | None:
-        return normalize_app_path(app_path) or (app_name.lower() if app_name else None)
-
-    def report_pinning_failure(self, app_path: str | None, app_name: str | None, domain: str) -> bool:
+    def report_pinning_failure(self, app_key: str | None, domain: str) -> bool:
         """Remember that this app rejected our certificate for this domain.
 
-        Returns True when the whole app was switched to metadata only.
+        Returns True when the whole app was just switched to metadata only (for
+        the rest of this audit; nothing is saved).
         """
-        key = self._app_key(app_path, app_name)
-        if key is None:
+        if app_key is None:
             return False
         with self._lock:
-            self._pinned.add((key, domain.lower()))
-            domains = {d for k, d in self._pinned if k == key}
-            if len(domains) < PINNING_APP_THRESHOLD:
+            self._pinned.add((app_key, domain.lower()))
+            if app_key in self._metadata_apps:
                 return False
-            existing = self._conn.execute(
-                "SELECT 1 FROM app_rules WHERE kind = 'app' AND match = ?", (key,)
-            ).fetchone()
-            if existing:
-                return False  # never override a rule the user chose
-            self._conn.execute(
-                "INSERT INTO app_rules (kind, match, rule, source, updated_at) VALUES ('app', ?, ?, 'auto', ?)",
-                (key, METADATA_ONLY, db.now_ms()),
-            )
-            self._loaded_at = 0.0
+            if len({d for k, d in self._pinned if k == app_key}) < PINNING_APP_THRESHOLD:
+                return False
+            self._metadata_apps.add(app_key)
             return True

@@ -1,11 +1,21 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { AnalyzerClient, pythonExecutable, repoRoot } from "./analyzer";
-import { isRecorderAction, isRequestType, type AnalyzerEvent, type RecorderResult } from "../src/shared/protocol";
+import { AuditController } from "./audit";
+import {
+  isAuditAction,
+  isRecorderAction,
+  isRendererRequestType,
+  type AnalyzerEvent,
+  type AuditControlResult,
+  type RecorderResult,
+} from "../src/shared/protocol";
 
 let win: BrowserWindow | null = null;
 let analyzer: AnalyzerClient | null = null;
+let audits: AuditController | null = null;
 
 function sendEvent(event: AnalyzerEvent): void {
   win?.webContents.send("shadow:event", event);
@@ -67,11 +77,13 @@ app.whenReady().then(() => {
 
   analyzer = new AnalyzerClient(sendEvent);
   analyzer.start();
+  audits = new AuditController(() => analyzer, sendEvent);
 
   ipcMain.handle("shadow:request", async (event, type: unknown, payload: unknown) => {
     // Only our own window may call, and only allowlisted message types.
     if (!win || event.sender !== win.webContents) throw new Error("forbidden");
-    if (!isRequestType(type)) throw new Error("unknown request type");
+    // create_audit / finish_audit are main-only: audits start through shadow:audit.
+    if (!isRendererRequestType(type)) throw new Error("unknown request type");
     const body = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : {};
     return analyzer!.request(type, body as Record<string, unknown>);
   });
@@ -82,6 +94,27 @@ app.whenReady().then(() => {
     // install: the user already agreed on the consent screen, so pass --yes.
     const args = action === "install" ? ["install", "--yes"] : [action];
     return runRecorder(args);
+  });
+
+  // Saves an exported blocklist to a file the user picks. Only text, only where they choose.
+  ipcMain.handle("shadow:save", async (event, filename: unknown, content: unknown): Promise<boolean> => {
+    if (!win || event.sender !== win.webContents) throw new Error("forbidden");
+    if (typeof content !== "string" || content.length > 1_000_000) throw new Error("bad content");
+    const name = typeof filename === "string" ? path.basename(filename).replace(/[^\w.-]/g, "-").slice(0, 100) : "";
+    const res = await dialog.showSaveDialog(win, { defaultPath: name || "doppel-blocklist.txt" });
+    if (res.canceled || !res.filePath) return false;
+    await writeFile(res.filePath, content, { encoding: "utf8", mode: 0o644 });
+    return true;
+  });
+
+  ipcMain.handle("shadow:audit", async (event, action: unknown, payload: unknown): Promise<AuditControlResult> => {
+    if (!win || event.sender !== win.webContents) throw new Error("forbidden");
+    if (!isAuditAction(action)) throw new Error("unknown audit action");
+    const a = audits!;
+    if (action === "start") return a.start(payload);
+    if (action === "self") return a.self(payload);
+    if (action === "stop") return a.stop();
+    return a.state();
   });
 
   createWindow();
@@ -106,7 +139,11 @@ app.on("web-contents-created", (_e, contents) => {
   contents.on("will-attach-webview", (e) => e.preventDefault());
 });
 
+// Audits never outlive Doppel.
+app.on("before-quit", () => audits?.shutdown());
+
 app.on("window-all-closed", () => {
+  audits?.shutdown();
   analyzer?.stop();
   app.quit();
 });

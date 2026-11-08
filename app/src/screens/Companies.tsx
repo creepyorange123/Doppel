@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ActionName, CompanyDetail, CompanyRow, RequestRow } from "../shared/protocol";
 import { RiskFilter, TierBadge, allTiers } from "../components/ui";
-import { CheckIcon, EraserIcon, ExternalIcon, LandmarkIcon, MailIcon, ShieldOffIcon, UndoIcon } from "../components/icons";
+import { ExternalIcon, LandmarkIcon, MailIcon } from "../components/icons";
 import { emptyCounts, tierKey, type TierKey } from "../lib/tiers";
 import { safeExternalLink } from "../lib/report";
 import { SENSITIVE_TOPICS, flagLabel, isDataFlag } from "../lib/signals";
@@ -12,19 +12,19 @@ import { monthDay, num, when } from "../lib/format";
 const DROP_URL = "https://cppa.ca.gov/";
 
 export function Companies({
+  auditId,
   companies,
   selected,
   onSelect,
   onAct,
-  onUndo,
   onOpenRequest,
   version,
 }: {
+  auditId: number;
   companies: CompanyRow[];
   selected: string | null;
   onSelect: (name: string) => void;
   onAct: (company: string, action: ActionName) => Promise<void>;
-  onUndo: (company: string, action: "block" | "strip") => Promise<void>;
   onOpenRequest: (r: RequestRow, company: string) => void;
   /** Bumped after an action so the profile reloads. */
   version: number;
@@ -41,7 +41,7 @@ export function Companies({
         <header className="view-head">
           <h1 className="title">Companies</h1>
         </header>
-        <p className="empty">No companies received data since you last opened.</p>
+        <p className="empty">No companies received data in this audit.</p>
       </div>
     );
   }
@@ -56,28 +56,27 @@ export function Companies({
               <button className="company-item" aria-current={c.name === current.name ? "true" : undefined} onClick={() => onSelect(c.name)}>
                 <TierBadge tier={c.tier} score={c.max_score} compact />
                 <span className="company-item-name">{c.name}</span>
-                {c.actions_taken.includes("block") && <span className="mini-chip">Blocked</span>}
               </button>
             </li>
           ))}
         </ul>
         {shown.length === 0 && <p className="empty">Select a risk level to see companies.</p>}
       </div>
-      <Profile key={current.name} row={current} onAct={onAct} onUndo={onUndo} onOpenRequest={onOpenRequest} version={version} />
+      <Profile key={current.name} auditId={auditId} row={current} onAct={onAct} onOpenRequest={onOpenRequest} version={version} />
     </div>
   );
 }
 
 function Profile({
+  auditId,
   row,
   onAct,
-  onUndo,
   onOpenRequest,
   version,
 }: {
+  auditId: number;
   row: CompanyRow;
   onAct: (company: string, action: ActionName) => Promise<void>;
-  onUndo: (company: string, action: "block" | "strip") => Promise<void>;
   onOpenRequest: (r: RequestRow, company: string) => void;
   version: number;
 }) {
@@ -86,10 +85,10 @@ function Profile({
 
   const load = useCallback(() => {
     window.shadow
-      .request("company_detail", { company: row.name })
+      .request("company_detail", { company: row.name, audit_id: auditId })
       .then(setDetail)
       .catch((e: Error) => setError(e.message));
-  }, [row.name]);
+  }, [row.name, auditId]);
   useEffect(load, [load, version]);
 
   const done = new Set(row.actions_taken);
@@ -119,24 +118,6 @@ function Profile({
         <span id="actions-label" className="action-bar-label">
           Actions
         </span>
-        {(["block", "strip"] as const).map((a) =>
-          done.has(a) ? (
-            <span key={a} className="done-chip">
-              <CheckIcon /> {a === "block" ? "Blocked" : "Stripping identifiers"}
-              <button className="chip-undo" onClick={() => void onUndo(row.name, a)} aria-label={`Undo ${a}`} title="Undo">
-                <UndoIcon />
-              </button>
-            </span>
-          ) : available.has(a) && !(a === "strip" && done.has("block")) ? (
-            <button
-              key={a}
-              className={a === "block" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
-              onClick={() => void onAct(row.name, a)}
-            >
-              {a === "block" ? <ShieldOffIcon /> : <EraserIcon />} {a === "block" ? "Block" : "Strip identifiers"}
-            </button>
-          ) : null,
-        )}
         {optOut && card && (
           <a
             className="btn btn-secondary btn-sm"
@@ -274,7 +255,8 @@ function Profile({
                     <span className="row-main">
                       <span className="row-name">{r.summary}</span>
                       <span className="row-meta">
-                        {r.app_name ?? "Unknown app"}, {when(r.captured_at)}
+                        {r.app_name ?? "Unknown app"}
+                        {r.process_name && r.process_name !== r.app_name ? ` (${r.process_name})` : ""}, {when(r.captured_at)}
                       </span>
                     </span>
                   </button>

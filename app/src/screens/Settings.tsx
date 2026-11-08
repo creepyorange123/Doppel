@@ -1,65 +1,64 @@
-import { useState } from "react";
-import type { Settings as SettingsData } from "../shared/protocol";
+import { useCallback, useEffect, useState } from "react";
+import type { DomainRule, Settings as SettingsData } from "../shared/protocol";
 import { Modal, Toggle } from "../components/ui";
-import type { StatusLine } from "../components/Sidebar";
-import { recorderRunning } from "../lib/health";
+import { certificateStatus, type CertificateStatus } from "../lib/certificate";
+import { monthDay } from "../lib/format";
 
 export type Theme = "system" | "light" | "dark";
 
-const TOGGLES: { key: "gpc" | "california" | "zero_network" | "local_ai"; label: string; hint: string }[] = [
-  { key: "gpc", label: "Global Privacy Control", hint: "Tells sites not to sell or share your data" },
+const TOGGLES: { key: keyof SettingsData; label: string; hint: string }[] = [
   { key: "california", label: "California resident", hint: "Enables DROP" },
   { key: "zero_network", label: "Zero-network mode", hint: "No company research; cards come from the bundled snapshot" },
   { key: "local_ai", label: "Local AI model", hint: "Ollama on this computer. Off: keyword rules" },
 ];
 
+const RULE_LABELS: Record<DomainRule, string> = {
+  dont_track: "Never recorded",
+  metadata_only: "Site name only",
+};
+
+const errorText = (e: unknown) =>
+  e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(e);
+
 export function Settings({
   settings,
   onChange,
-  recorder,
-  running,
-  onRunning,
+  auditRunning,
   theme,
   onTheme,
   onToast,
 }: {
   settings: SettingsData;
   onChange: (key: keyof SettingsData, value: boolean) => void;
-  recorder: StatusLine;
-  running: boolean | null;
-  onRunning: (running: boolean | null) => void;
+  auditRunning: boolean;
   theme: Theme;
   onTheme: (t: Theme) => void;
   onToast: (text: string) => void;
 }) {
-  const [confirmUninstall, setConfirmUninstall] = useState(false);
+  const [cert, setCert] = useState<CertificateStatus | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const refreshRunning = async () => {
+  const checkCert = useCallback(async () => {
     try {
       const res = await window.shadow.recorder("status");
-      onRunning(res.ok ? recorderRunning(res.output) : null);
+      setCert(certificateStatus(res.ok ? res.output : null));
     } catch {
-      onRunning(null);
+      setCert(certificateStatus(null));
     }
-  };
+  }, []);
+  useEffect(() => void checkCert(), [checkCert]);
 
-  const recorderAction = async (action: "status" | "uninstall" | "start" | "stop") => {
+  const recorderAction = async (action: "install" | "uninstall") => {
     setBusy(true);
     try {
       const res = await window.shadow.recorder(action);
-      const first = res.output.trim().split("\n")[0];
-      if (action === "status") {
-        onRunning(res.ok ? recorderRunning(res.output) : null);
-        onToast(res.ok ? (recorderRunning(res.output) ? "Recorder is running" : "Recorder is off") : first || "Recorder command failed");
-      } else {
-        onToast(first || (res.ok ? "Done" : "Recorder command failed"));
-        await refreshRunning();
-      }
+      onToast(res.output.trim().split("\n")[0] || (res.ok ? "Done" : "Command failed"));
     } catch (e) {
-      onToast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : "Recorder command failed");
+      onToast(errorText(e));
     } finally {
       setBusy(false);
+      void checkCert();
     }
   };
 
@@ -68,25 +67,6 @@ export function Settings({
       <header className="view-head">
         <h1 className="title">Settings</h1>
       </header>
-      <div className="pref">
-        <span className="pref-name">
-          <span className={`dot dot-${recorder.state}`} /> Recorder
-          <span className="muted pref-hint">{recorder.text}</span>
-        </span>
-        <span className="pref-actions">
-          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => void recorderAction("status")}>
-            Check
-          </button>
-          <button
-            className="btn btn-quiet btn-sm pref-btn-fixed"
-            disabled={busy || running === null}
-            title={running ? "Pause recording until you turn it back on or next log in" : "Start recording now"}
-            onClick={() => void recorderAction(running ? "stop" : "start")}
-          >
-            {running === null ? " " : running ? "Turn off" : "Turn on"}
-          </button>
-        </span>
-      </div>
       {TOGGLES.map((t) => (
         <div key={t.key} className="pref">
           <span className="pref-name">
@@ -103,41 +83,124 @@ export function Settings({
           <option value="dark">Dark</option>
         </select>
       </div>
+
+      <DomainRules onToast={onToast} />
+
+      <h2 className="h2 block">Certificate</h2>
       <div className="pref">
         <span className="pref-name">
-          Uninstall recorder <span className="muted pref-hint">Removes the certificate and login item</span>
+          <span className={`dot dot-${cert?.state ?? "off"}`} /> Audit certificate
+          <span className="muted pref-hint">
+            {cert ? cert.text : "Checking…"}
+            {cert?.expires ? ` (expires ${monthDay(cert.expires)})` : ""}
+          </span>
         </span>
-        <button className="btn btn-danger btn-sm" disabled={busy} onClick={() => setConfirmUninstall(true)}>
-          Uninstall
-        </button>
+        <span className="pref-actions">
+          {cert && !cert.valid && (
+            <button className="btn btn-secondary btn-sm" disabled={busy || auditRunning} onClick={() => void recorderAction("install")}>
+              {cert.installed ? "Renew" : "Install"}
+            </button>
+          )}
+          <button className="btn btn-danger btn-sm" disabled={busy || auditRunning || !cert?.installed} onClick={() => setConfirmRemove(true)}>
+            Remove
+          </button>
+        </span>
       </div>
-      {confirmUninstall && (
+      <p className="muted small">
+        Used only during audits, to read the encrypted traffic of the apps you pick. Nothing runs between audits.
+      </p>
+
+      {confirmRemove && (
         <Modal
-          title="Uninstall the recorder?"
-          onClose={() => setConfirmUninstall(false)}
+          title="Remove the certificate?"
+          onClose={() => setConfirmRemove(false)}
           footer={
             <>
-              <button className="btn btn-quiet btn-sm" onClick={() => setConfirmUninstall(false)}>
+              <button className="btn btn-quiet btn-sm" onClick={() => setConfirmRemove(false)}>
                 Cancel
               </button>
               <button
                 className="btn btn-danger btn-sm"
                 onClick={() => {
-                  setConfirmUninstall(false);
+                  setConfirmRemove(false);
                   void recorderAction("uninstall");
                 }}
               >
-                Uninstall
+                Remove
               </button>
             </>
           }
         >
           <p className="muted">
-            Recording stops and the certificate and login item are removed. Your encrypted log stays until you delete it
-            with <span className="mono">recorder uninstall --wipe</span>.
+            Audits can then only see which sites an app contacts, not what it sends, until you install it again. Your past
+            audits are kept until you delete them, or run <span className="mono">recorder uninstall --wipe</span>.
           </p>
         </Modal>
       )}
     </div>
+  );
+}
+
+function DomainRules({ onToast }: { onToast: (text: string) => void }) {
+  const [domains, setDomains] = useState<{ domain: string; rule: DomainRule }[] | null>(null);
+  const [domain, setDomain] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    window.shadow
+      .request("list_domain_rules")
+      .then((r) => setDomains(r.domains))
+      .catch((e: Error) => setError(e.message));
+  }, []);
+  useEffect(load, [load]);
+
+  const set = (d: string, rule: DomainRule | null, toast?: string) =>
+    window.shadow
+      .request("set_domain_rule", { domain: d, rule })
+      .then(() => {
+        load();
+        setError(null);
+        if (toast) onToast(toast);
+        return true;
+      })
+      .catch((e: Error) => {
+        setError(e.message);
+        return false;
+      });
+
+  return (
+    <section className="block">
+      <h2 className="h2">Never record these sites</h2>
+      <p className="muted small">Applies to every audit, for example: never record anything sent to my bank.</p>
+      {error && <p className="notice notice-error">{error}</p>}
+      <ul className="rows">
+        {(domains ?? []).map((d) => (
+          <li key={d.domain} className="row site-row">
+            <span className="row-main">
+              <span className="row-name mono">{d.domain}</span>
+              <span className="row-meta">{RULE_LABELS[d.rule]}</span>
+            </span>
+            <button className="btn btn-quiet btn-sm" onClick={() => void set(d.domain, null)}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <form
+        className="site-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const d = domain.trim();
+          void set(d, "dont_track", `${d} will never be recorded`).then((ok) => ok && setDomain(""));
+        }}
+      >
+        <label className="search">
+          <input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="mybank.com" aria-label="Site" />
+        </label>
+        <button type="submit" className="btn btn-secondary btn-sm" disabled={!domain.trim()}>
+          Never record this site
+        </button>
+      </form>
+    </section>
   );
 }

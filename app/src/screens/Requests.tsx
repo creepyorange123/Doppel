@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
-import type { RequestListItem } from "../shared/protocol";
+import type { Audit, RequestListItem } from "../shared/protocol";
+import { AuditHeader } from "../components/AuditHeader";
 import { RiskFilter, TierBadge, allTiers } from "../components/ui";
 import { SearchIcon } from "../components/icons";
 import { emptyCounts, tierKey, type TierKey } from "../lib/tiers";
 import { num, when } from "../lib/format";
 
 export function Requests({
-  since,
+  audit,
   onOpenRequest,
 }: {
-  since: number | null;
+  audit: Audit;
   onOpenRequest: (r: RequestListItem) => void;
 }) {
   const [data, setData] = useState<{ requests: RequestListItem[]; truncated: boolean } | null>(null);
@@ -19,10 +20,10 @@ export function Requests({
 
   useEffect(() => {
     window.shadow
-      .request("list_requests")
+      .request("list_requests", { audit_id: audit.id })
       .then(setData)
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [audit.id]);
 
   const requests = data?.requests ?? [];
   const counts = emptyCounts();
@@ -31,18 +32,13 @@ export function Requests({
   const shown = requests.filter(
     (r) =>
       filter.has(tierKey(r.tier)) &&
-      (!q || [r.summary, r.company, r.app_name, r.dest_domain].some((v) => v?.toLowerCase().includes(q))),
+      (!q || [r.summary, r.company, r.app_name, r.process_name, r.dest_domain].some((v) => v?.toLowerCase().includes(q))),
   );
 
   return (
     <div className="view requests">
-      <header className="view-head">
-        <h1 className="title">Requests</h1>
-        <p className="muted">
-          {since ? `Since ${when(since)}` : "Since you installed Doppel"}
-          {data?.truncated ? `, newest ${num(requests.length)} shown` : ""}
-        </p>
-      </header>
+      <AuditHeader title="Requests" audit={audit} />
+      {data?.truncated && <p className="muted small">Newest {num(requests.length)} shown.</p>}
       <div className="toolbar">
         <label className="search">
           <SearchIcon />
@@ -72,6 +68,7 @@ export function Requests({
                 <td>{r.company ?? <span className="muted">First party</span>}</td>
                 <td>
                   {r.app_name ?? "Unknown"}
+                  {r.process_name && r.process_name !== r.app_name && <span className="cell-sub">{r.process_name}</span>}
                   {r.sensitive && <span className="sensitive">Sensitive</span>}
                 </td>
                 <td className="cell-time">{when(r.captured_at)}</td>
@@ -80,7 +77,7 @@ export function Requests({
           </tbody>
         </table>
         {!data && !error && <p className="empty">Loading…</p>}
-        {data && shown.length === 0 && <p className="empty">{requests.length ? "No matches." : "No requests since you last opened."}</p>}
+        {data && shown.length === 0 && <p className="empty">{requests.length ? "No matches." : "No requests in this audit."}</p>}
       </div>
     </div>
   );

@@ -35,6 +35,9 @@ POINTS = {
     "personal_identifier": 30,
     "cookie_syncing": 30,
     "data_broker": 15,
+    # Metadata-only audits can't see IDs; these stand in for what the content would show.
+    "likely_cross_site": 20,     # a known ad, social or broker tracker loaded by a page
+    "company_across_sites": 25,  # the same profiling company on 2+ sites you visited in this audit
     # Added with payload data types (analyzer/datatypes.py); not in the original table.
     "sensitive_data": 30,   # health, finance, sexuality, religion, children, politics, ethnicity
     "personal_data": 20,    # name, birth date, address, gender, ID numbers, precise location
@@ -42,6 +45,9 @@ POINTS = {
     "page_breaks_without_it": -20,
 }
 AD_CATEGORIES = frozenset({"Advertising", "Ad Motivated Tracking"})
+SOCIAL_CATEGORIES = frozenset({"Social Network", "Social - Share"})
+# Companies whose business is following people across sites.
+PROFILING_CATEGORIES = AD_CATEGORIES | SOCIAL_CATEGORIES | {"Data Broker", "Fingerprinting"}
 PERSONAL_FLAGS = frozenset({"hashed_email", "hashed_phone", "raw_email"})
 IDENTIFIER_FLAGS = frozenset({"tracking_id"}) | PERSONAL_FLAGS
 SENSITIVE_MULTIPLIER = 1.5
@@ -85,6 +91,7 @@ class Input:
     dest_domain: str | None = None
     is_data_broker: bool | None = None
     breakage: str | None = None  # "works" | "breaks" | None (not probed)
+    company_sites: int = 0       # distinct sites this company was seen on in the audit
 
 
 @dataclass
@@ -127,8 +134,8 @@ def _entry(signal: str, label: str) -> dict:
 
 
 def is_third_party(inp: Input) -> bool:
-    if inp.category == "First party":
-        return False
+    if inp.category == "First party" or any(f.get("flag") == "app_own_domain" for f in inp.flags):
+        return False  # the page's own site, or the app maker's own servers
     if inp.page_site and inp.dest_domain:
         return registrable_domain(inp.dest_domain) != registrable_domain(inp.page_site)
     # App traffic with no page: only a known company counts as a third party.
@@ -139,10 +146,17 @@ def score(inp: Input, history) -> Result:
     b: list[dict] = []
     kinds = set() if inp.metadata_only else {f["flag"] for f in inp.flags}
 
-    if is_third_party(inp):
-        b.append(_entry("third_party", "third party"))
+    third_party = is_third_party(inp)
+    # In a metadata-only audit the page is inferred from timing (analyzer/context.py).
+    where = f" on {inp.page_site}" + (" (probably)" if inp.metadata_only else "") if inp.page_site else ""
+    if third_party:
+        b.append(_entry("third_party", f"third party{where}"))
     if inp.category in AD_CATEGORIES:
         b.append(_entry("advertising", "advertising company"))
+    elif inp.category in SOCIAL_CATEGORIES and third_party and inp.page_site:
+        b.append(_entry("advertising", "social-media tracker embedded in another site"))
+    if inp.metadata_only and third_party and inp.page_site and inp.category in PROFILING_CATEGORIES:
+        b.append(_entry("likely_cross_site", "known cross-site tracker (contents not visible: metadata only)"))
     if inp.category == "Session Replay" or "behavioural_events" in kinds:
         b.append(_entry("session_replay", "session replay (mouse and keystroke events)"))
 
@@ -151,6 +165,9 @@ def score(inp: Input, history) -> Result:
     sites = max((history.contexts(h) for h in id_hashes), default=0)
     if sites >= 2:
         b.append(_entry("cross_site_id", f"cross-site ID seen on {sites} sites"))
+    elif inp.company_sites >= 2 and inp.category in PROFILING_CATEGORIES and third_party:
+        b.append(_entry("company_across_sites",
+                        f"{inp.company} was on {inp.company_sites} sites you visited, so it can link those visits"))
     if "page_url" in kinds and kinds & IDENTIFIER_FLAGS:
         b.append(_entry("page_url", "sent the page address"))
     if "fingerprinting" in kinds or inp.category == "Fingerprinting":
@@ -161,7 +178,6 @@ def score(inp: Input, history) -> Result:
         b.append(_entry("cookie_syncing", "cookie syncing: the same ID went to another company"))
     if inp.is_data_broker or inp.category == "Data Broker":
         b.append(_entry("data_broker", "registered data broker"))
-    third_party = is_third_party(inp)
     special = sorted({SPECIAL_DATA[k] for k in kinds if k in SPECIAL_DATA}) if third_party else []
     personal = sorted({PERSONAL_DATA[k] for k in kinds if k in PERSONAL_DATA}) if third_party else []
     if special:
@@ -211,6 +227,15 @@ def _breakage(conn, dest: str | None) -> str | None:
     return row[0] if row else None
 
 
+def company_sites(conn, audit_id: int | None, company: str | None) -> int:
+    """How many different sites this company was contacted from during the audit."""
+    if not company or audit_id is None:
+        return 0
+    return conn.execute(
+        "SELECT count(DISTINCT r.page_site) FROM requests r JOIN findings f ON f.request_id = r.id "
+        "WHERE r.audit_id = ? AND f.company = ? AND r.page_site IS NOT NULL", (audit_id, company)).fetchone()[0]
+
+
 def score_step(conn, row: dict) -> None:
     """Stage 2: runs after every sighting in the batch is recorded."""
     f = _finding(conn, row["id"])
@@ -223,7 +248,8 @@ def score_step(conn, row: dict) -> None:
         broker = bool(r[0]) if r and r[0] is not None else None
     dest = row.get("dest_domain")
     res = score(Input(company, category, json.loads(flags or "[]"), topic, bool(row.get("metadata_only")),
-                      row.get("app_name"), row.get("page_site"), dest, broker, _breakage(conn, dest)),
+                      row.get("app_name"), row.get("page_site"), dest, broker, _breakage(conn, dest),
+                      company_sites(conn, row.get("audit_id"), company)),
                 DbHistory(conn))
     conn.execute("INSERT OR REPLACE INTO scores (request_id, score, tier, breakdown) VALUES (?, ?, ?, ?)",
                  (row["id"], res.score, res.tier, json.dumps(res.breakdown, separators=(",", ":"))))

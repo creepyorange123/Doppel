@@ -4,17 +4,13 @@ import { countsByKey, TIER_INFO, TIER_KEYS, tierKey } from "./tiers";
 
 describe("summaryLine", () => {
   it("matches the plan's wording", () => {
-    expect(summaryLine({ since: 0, requests: 1240, companies: 38, high_concern: 12 })).toBe(
-      "Since you last opened: 1,240 requests to 38 companies, 12 high concern.",
+    expect(summaryLine({ requests: 1240, companies: 38, high_concern: 12 })).toBe(
+      "1,240 requests to 38 companies, 12 high concern.",
     );
   });
-  it("handles singulars and nothing new", () => {
-    expect(summaryLine({ since: 0, requests: 1, companies: 1, high_concern: 0 })).toBe(
-      "Since you last opened: 1 request to 1 company, none high concern.",
-    );
-    expect(summaryLine({ since: 0, requests: 0, companies: 0, high_concern: 0 })).toBe(
-      "Nothing new since you last opened.",
-    );
+  it("handles singulars and an empty audit", () => {
+    expect(summaryLine({ requests: 1, companies: 1, high_concern: 0 })).toBe("1 request to 1 company, none high concern.");
+    expect(summaryLine({ requests: 0, companies: 0, high_concern: 0 })).toBe("No requests were recorded in this audit.");
   });
 });
 
@@ -48,5 +44,5 @@ describe("safeExternalLink", () => {
 });
 
 it("labels every action", () => {
-  expect(Object.keys(ACTION_LABELS).sort()).toEqual(["block", "letter", "opt-out", "strip"]);
+  expect(Object.keys(ACTION_LABELS).sort()).toEqual(["letter", "opt-out"]);
 });

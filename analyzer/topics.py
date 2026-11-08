@@ -39,7 +39,8 @@ KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("Dating", ("dating", "tinder", "bumble", "hinge", "okcupid", "grindr", "match.com")),
     ("Medical Health", ("symptom", "diagnos", "clinic", "hospital", "pharma", "prescription", "disease",
                         "diabetes", "cancer", "therapy", "mental-health", "depression", "pregnan", "webmd",
-                        "mychart", "doctor", "medic")),
+                        "mychart", "doctor", "medic", "health", "medline", "nih.gov", "drugs.com", "goodrx",
+                        "zocdoc", "teladoc", "planned", "fertility")),
     ("Healthy Living", ("fitness", "workout", "nutrition", "diet", "calorie", "weight-loss", "strava",
                         "myfitnesspal", "meditat", "sleep", "fitbit")),
     ("Personal Finance", ("bank", "loan", "mortgage", "credit", "invest", "brokerage", "insurance", "tax",
@@ -144,8 +145,9 @@ class TopicCache:
         if row:
             return row[0]
         topic = classify(text, model)
-        self.conn.execute("INSERT OR REPLACE INTO topic_cache (key, topic, created_at) VALUES (?, ?, ?)",
-                          (k, topic, db.now_ms()))
+        if topic != "Uncategorized":  # unknown pages get another try with better rules or the local AI
+            self.conn.execute("INSERT OR REPLACE INTO topic_cache (key, topic, created_at) VALUES (?, ?, ?)",
+                              (k, topic, db.now_ms()))
         return topic
 
 

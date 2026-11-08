@@ -1,8 +1,7 @@
-"""Phase 7: Playwright persona, run the night before the demo so the first
-'since last open' report is full.
+"""Phase 7: Playwright persona, run during an audit so the demo report is full.
 
     pip install -r requirements-demo.txt && python -m playwright install chromium
-    python -m demo.persona            # with the recorder running
+    python -m demo.persona            # during an audit of Playwright's Chromium
 
 The persona only navigates (GET) public pages in a fresh, throwaway browser
 profile: no logins, no forms, no searches, no personal data.

@@ -59,8 +59,7 @@ def ca_key_not_in_mitmproxy_dir() -> None:
 
 
 def installed_state(expect_installed: bool) -> None:
-    present = service.is_installed()
-    check("Login service " + ("installed" if expect_installed else "removed"), present == expect_installed)
+    check("No login item or background recorder", not service.legacy_login_item_exists() and not service.is_running())
     if sys.platform == "win32":
         r = subprocess.run(["certutil", "-user", "-store", "Root", ca.CA_COMMON_NAME], capture_output=True, text=True)
         trusted = r.returncode == 0 and ca.CA_COMMON_NAME in r.stdout
@@ -87,7 +86,7 @@ def main() -> int:
     width = max(len(n) for n, _, _ in results)
     for name, ok, detail in results:
         print(f"{'PASS' if ok else 'FAIL'}  {name.ljust(width)}  {detail}")
-    print("\nManual: run Wireshark or Little Snitch beside a full on-open run (Phase 5 check).")
+    print("\nManual: run Wireshark or Little Snitch beside an audit, or use the self-audit on the Privacy screen.")
     return 0 if all(ok for _, ok, _ in results) else 1
 
 

@@ -6,11 +6,14 @@ import pytest
 
 from analyzer import score
 from shared import db
+from tests.helpers import make_audit
 
 
 @pytest.fixture
 def conn(tmp_path, db_key):
-    return db.open_db(tmp_path / "t.db", db_key)
+    c = db.open_db(tmp_path / "t.db", db_key)
+    make_audit(c)  # audit 1, which the requests below belong to
+    return c
 
 
 def inp(category=None, company=None, flags=(), topic="Uncategorized", metadata_only=False, app="Chrome",
@@ -126,7 +129,7 @@ def test_original_plan_example_breakdown():
                     Hist(contexts=9))
     assert r.score == 75 and r.tier == "Profile building"
     assert [b["label"] for b in r.breakdown] == [
-        "third party", "advertising company", "cross-site ID seen on 9 sites",
+        "third party on news.example", "advertising company", "cross-site ID seen on 9 sites",
         "sent the page address", "page works without it"]
 
 
@@ -144,9 +147,48 @@ def test_sensitive_app_x1_5():
     assert sens.score == round(base.score * 1.5)
 
 
-def test_metadata_only_scores_recipient_only():
+def test_metadata_only_ignores_content_flags_but_knows_the_tracker():
     r = score.score(inp("Advertising", "X", [f("tracking_id", "h")], metadata_only=True), Hist(9, 2))
+    assert pts(r) == {"third_party": 10, "advertising": 20, "likely_cross_site": 20}
+    assert r.tier == "Profile building"
+    assert r.breakdown[0]["label"] == "third party on news.example (probably)"
+    # An ordinary analytics or CDN host stays low.
+    assert score.score(inp("Analytics", "Y", metadata_only=True), score.NoHistory()).tier == "Minimum utility"
+
+
+def test_tracker_on_a_health_page_is_high_risk_even_without_content():
+    """Facebook loaded by healthline.com: the case that used to score as Measurement."""
+    r = score.score(inp("Advertising", "Meta", metadata_only=True, page_site="healthline.com",
+                        dest="connect.facebook.net", topic="Medical Health"), score.NoHistory())
+    assert r.score == 75 and r.tier == "Profile building"
+    # Also on other sites you visited: it can link a health visit to the rest.
+    i = inp("Advertising", "Meta", metadata_only=True, page_site="healthline.com",
+            dest="connect.facebook.net", topic="Medical Health")
+    i.company_sites = 2
+    assert score.score(i, score.NoHistory()).tier == "High concern"
+
+
+def test_social_widget_on_another_site_counts_as_tracking():
+    r = score.score(inp("Social Network", "Meta", page_site="healthline.com", dest="www.facebook.com"), score.NoHistory())
     assert pts(r) == {"third_party": 10, "advertising": 20}
+    # Visiting Facebook itself is first party: no tracking signal.
+    own = score.score(inp("Social Network", "Meta", page_site="facebook.com", dest="www.facebook.com"), score.NoHistory())
+    assert "advertising" not in pts(own)
+
+
+def test_same_company_across_sites_in_the_audit():
+    def run(sites, cat="Advertising"):
+        i = inp(cat, "Criteo", metadata_only=True)
+        i.company_sites = sites
+        return pts(score.score(i, score.NoHistory()))
+    assert "company_across_sites" not in run(1)
+    assert run(3)["company_across_sites"] == 25
+    assert "company_across_sites" not in run(3, cat="Analytics")
+    # With content visible, a real cross-site ID wins and the weaker signal isn't added too.
+    i = inp("Advertising", "Criteo", [f("tracking_id", "h")])
+    i.company_sites = 3
+    got = pts(score.score(i, Hist(contexts=3)))
+    assert "cross_site_id" in got and "company_across_sites" not in got
 
 
 def test_app_traffic_without_page_is_third_party_only_for_known_companies():
@@ -172,8 +214,8 @@ def test_cookie_syncing_same_id_two_companies(conn):
 
 
 def test_score_step_uses_research_and_breakage(conn):
-    conn.execute("INSERT INTO requests (id, captured_at, app_name, page_site, dest_domain) "
-                 "VALUES (1, 1, 'Chrome', 'a.example', 'ads.criteo.com')")
+    conn.execute("INSERT INTO requests (audit_id, id, captured_at, app_name, page_site, dest_domain) "
+                 "VALUES (1, 1, 1, 'Chrome', 'a.example', 'ads.criteo.com')")
     conn.execute("INSERT INTO findings (request_id, company, category, flags, topic, summary) VALUES "
                  "(1, 'Criteo', 'Advertising', ?, 'News and Politics', 's')", (json.dumps([f("tracking_id", "hh")]),))
     conn.execute("INSERT INTO companies (name, is_data_broker, from_snapshot) VALUES ('Criteo', 1, 1)")
@@ -199,8 +241,8 @@ def test_pipeline_scores_after_all_sightings_recorded(conn, monkeypatch):
     from analyzer import handlers, pipeline
 
     for i, site in enumerate(("a.example", "b.example"), start=1):
-        conn.execute("INSERT INTO requests (id, captured_at, app_name, page_site, dest_domain) "
-                     "VALUES (?, ?, 'Chrome', ?, 'ads.example')", (i, db.now_ms() + i, site))
+        conn.execute("INSERT INTO requests (audit_id, id, captured_at, app_name, page_site, dest_domain) "
+                     "VALUES (1, ?, ?, 'Chrome', ?, 'ads.example')", (i, db.now_ms() + i, site))
 
     def fake_identify(conn, row):
         conn.execute("INSERT OR REPLACE INTO findings (request_id, company, category, flags, topic, summary) VALUES "
@@ -209,7 +251,7 @@ def test_pipeline_scores_after_all_sightings_recorded(conn, monkeypatch):
 
     monkeypatch.setattr(pipeline, "STEPS", [fake_identify, score.record_step])
     monkeypatch.setattr(pipeline, "SCORE_STEPS", [score.score_step])
-    handlers.handle(conn, "analyze_since_last_open", {}, lambda *a: None)
+    handlers.handle(conn, "analyze_audit", {"audit_id": 1}, lambda *a: None)
     for (b,) in conn.execute("SELECT breakdown FROM scores"):
         assert "cross_site_id" in {x["signal"] for x in json.loads(b)}
 
@@ -220,8 +262,8 @@ def test_review_export_and_report(conn, tmp_path):
 
     from analyzer import review
 
-    conn.execute("INSERT INTO requests (id, captured_at, app_name, dest_domain, body) "
-                 "VALUES (1, 1, 'Chrome', 'ads.example', X'73656372657421')")
+    conn.execute("INSERT INTO requests (audit_id, id, captured_at, app_name, dest_domain, body) "
+                 "VALUES (1, 1, 1, 'Chrome', 'ads.example', X'73656372657421')")
     conn.execute("INSERT INTO findings (request_id, company, category, flags, topic, summary) "
                  "VALUES (1, 'Ad', 'Advertising', '[]', 'x', 'Sent')")
     conn.execute("INSERT INTO scores (request_id, score, tier, breakdown) VALUES (1, 20, 'Measurement', '[]')")
@@ -242,9 +284,10 @@ def test_rows_saved_under_old_tier_names_are_renamed_from_their_score(tmp_path, 
     from shared import db as _db
 
     c = _db.open_db(tmp_path / "m.db", db_key)
+    make_audit(c)
     for rid, s, old in [(1, 10, "Low"), (2, 22, "Low"), (3, 40, "Moderate"), (4, 60, "Profile-building"),
                         (5, 90, "High concern"), (6, 30, "Measurement")]:
-        c.execute("INSERT INTO requests (id, captured_at, dest_domain) VALUES (?, 1, 'x')", (rid,))
+        c.execute("INSERT INTO requests (audit_id, id, captured_at, dest_domain) VALUES (1, ?, 1, 'x')", (rid,))
         c.execute("INSERT INTO scores (request_id, score, tier, breakdown) VALUES (?, ?, ?, '[]')", (rid, s, old))
     assert score.migrate_legacy_tiers(c) == 4
     tiers = dict(c.execute("SELECT request_id, tier FROM scores"))

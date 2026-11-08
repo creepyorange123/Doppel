@@ -5,11 +5,14 @@ import pytest
 from analyzer import trackers
 from analyzer.research import egress, ledger, research, snapshot, summarize
 from shared import db
+from tests.helpers import make_audit
 
 
 @pytest.fixture
 def conn(tmp_path, db_key):
-    return db.open_db(tmp_path / "t.db", db_key)
+    c = db.open_db(tmp_path / "t.db", db_key)
+    make_audit(c)  # audit 1, which the requests below belong to
+    return c
 
 
 # ----------------------------------------------------------------------- ledger
@@ -89,7 +92,7 @@ def test_queries_only_carry_company_names():
 
 def test_top_companies_by_frequency(conn):
     for i, company in enumerate(["A"] * 3 + ["B"] * 2 + ["C"] + [None] * 5):
-        conn.execute("INSERT INTO requests (id, captured_at, dest_domain) VALUES (?, 1, 'x')", (i + 1,))
+        conn.execute("INSERT INTO requests (audit_id, id, captured_at, dest_domain) VALUES (1, ?, 1, 'x')", (i + 1,))
         conn.execute("INSERT INTO findings (request_id, company) VALUES (?, ?)", (i + 1, company))
     assert research.top_companies(conn, limit=2) == ["A", "B"]
 

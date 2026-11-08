@@ -8,21 +8,25 @@ from __future__ import annotations
 import json
 from typing import Any
 
-PROTOCOL_VERSION = "0.1.0"
+PROTOCOL_VERSION = "0.2.0"
 MAX_LINE_BYTES = 1_000_000
 
 REQUEST_TYPES = frozenset({
     "hello", "status",
-    # Phase 1: app list
-    "list_apps", "set_app_rule", "set_domain_rule", "set_tracking_mode", "delete_app_data",
-    # Phase 2
-    "analyze_since_last_open",
-    # Phase 5
+    # Audits
+    "list_running_apps", "list_audits", "audit_live", "analyze_audit", "delete_audit", "self_audit_result",
+    # Capture rules
+    "list_domain_rules", "set_domain_rule",
+    # Settings and outgoing calls
     "get_settings", "set_setting", "ledger_verify", "ledger_list",
-    # Phase 6
-    "report", "company_detail", "take_action", "undo_action", "list_requests",
+    # Report for one audit
+    "report", "company_detail", "take_action", "list_requests",
+    # Hand findings to your own blocker (uBlock Origin, NextDNS, Little Snitch, ...)
+    "export_blocklist",
     # Privacy screen
     "privacy_checks",
+    # Sent only by the Electron main process (app/src/shared/protocol.ts MAIN_ONLY_REQUEST_TYPES)
+    "create_audit", "finish_audit",
 })
 EVENT_TYPES = frozenset({"ready", "progress"})
 

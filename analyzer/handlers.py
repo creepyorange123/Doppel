@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from analyzer import app_rules, pipeline, privacy_checks, report, settings_api
-from shared import db, protocol
+from analyzer import audits_api, domain_rules, export, pipeline, privacy_checks, report, settings_api
+from shared import audits, db, protocol
 
 
 def _int_or_none(value: str | None) -> int | None:
@@ -20,25 +20,28 @@ def status(conn, payload) -> dict:
     total, unanalyzed = conn.execute(
         "SELECT count(*), coalesce(sum(analyzed = 0), 0) FROM requests"
     ).fetchone()
+    audits.settle(conn)
+    active = audits.running(conn)
     return {
         "request_count": total,
         "unanalyzed_count": unanalyzed,
         "install_at": _int_or_none(db.get_setting(conn, "install_at")),
-        "last_opened_at": _int_or_none(db.get_setting(conn, "last_opened_at")),
-        "recorder_heartbeat_at": _int_or_none(db.get_setting(conn, "recorder_heartbeat_at")),
         "consent_at": _int_or_none(db.get_setting(conn, "consent_at")),
+        "active_audit_id": active.id if active else None,
     }
 
 
 HANDLERS: dict[str, Callable[[Any, dict], dict]] = {
     "hello": hello,
     "status": status,
-    "list_apps": lambda c, p: app_rules.list_apps(c),
-    "set_app_rule": app_rules.set_app_rule,
-    "set_domain_rule": app_rules.set_domain_rule,
-    "set_tracking_mode": app_rules.set_tracking_mode,
-    "delete_app_data": app_rules.delete_app_data,
-    "analyze_since_last_open": pipeline.analyze_since_last_open,
+    "list_running_apps": audits_api.list_running_apps,
+    "list_audits": audits_api.list_audits,
+    "audit_live": audits_api.audit_live,
+    "analyze_audit": pipeline.analyze_audit,
+    "delete_audit": audits_api.delete_audit,
+    "self_audit_result": audits_api.self_audit_result,
+    "list_domain_rules": domain_rules.list_domain_rules,
+    "set_domain_rule": domain_rules.set_domain_rule,
     "get_settings": settings_api.get_settings,
     "set_setting": settings_api.set_setting,
     "ledger_verify": settings_api.ledger_verify,
@@ -47,8 +50,10 @@ HANDLERS: dict[str, Callable[[Any, dict], dict]] = {
     "company_detail": report.company_detail,
     "list_requests": report.list_requests,
     "take_action": report.take_action,
-    "undo_action": report.undo_action,
+    "export_blocklist": export.export_blocklist,
     "privacy_checks": privacy_checks.handle,
+    "create_audit": audits_api.create_audit,
+    "finish_audit": audits_api.finish_audit,
 }
 
 

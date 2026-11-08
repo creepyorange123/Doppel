@@ -1,10 +1,16 @@
 # Shadow Profile
 
-Shows what every app on your computer sends, and to whom, since you last looked.
-Everything runs locally; captured traffic never leaves the device.
+An audit tool for the apps on your computer. You say "I'll use Slack and Zoom as I
+normally would for the next 30 minutes", and Doppel shows what those apps (and every
+process they start) sent, and to whom. Everything runs locally; captured traffic never
+leaves the device.
+
+Doppel never monitors in the background. Outside an audit no Doppel process records
+anything, and during one, only the apps you picked go through it: your VPN, ad blocker
+and every other app talk to the network directly, untouched.
 
 **Contents:** [Setup](#setup-phase-0-check) ·
-[Running it for real](#running-it-for-real) · [Scoring](#how-requests-are-scored) ·
+[Audits](#audits) · [Scoring](#how-requests-are-scored) ·
 [Local AI and company research](#local-ai-and-company-research-optional) ·
 [Demo](#demo) · [Known gaps](#known-gaps)
 
@@ -12,8 +18,8 @@ Everything runs locally; captured traffic never leaves the device.
 
 | Folder | Owner | What |
 |---|---|---|
-| `recorder/` | traffic & detection | Always-on mitmproxy (local capture mode) addon that writes each request to the encrypted log |
-| `analyzer/` | traffic & detection, research | Python sidecar started by the app on open; steps 1–4 (fetch, identify, score) |
+| `recorder/` | traffic & detection | mitmproxy (local capture mode) addon, run only for the length of an audit; captures just the audited apps' processes |
+| `analyzer/` | traffic & detection, research | Python sidecar started by the app; creates audits, analyses them when they end (identify, score) |
 | `app/` | desktop app | Electron + React (TypeScript, Vite) window; talks to the analyzer over stdio IPC |
 | `shared/` | data & demo | Database schema, encrypted DB access, key storage, IPC message format |
 | `tests/` | data & demo | pytest suites |
@@ -28,12 +34,18 @@ The app's **Privacy** screen tests most of these live on your own data (encrypti
 location, hashed IDs, no credentials or search terms, raw content deleted, no listening
 ports, local-only AI, outgoing calls, egress gate); see `analyzer/privacy_checks.py`.
 
+- Nothing is recorded outside an audit, or from an app you didn't pick. No login item,
+  no background service; an audit's recorder stops on its own at the end time, on Stop,
+  or when Doppel quits. Every stored request carries its audit's id.
+- Audits observe; they never change traffic (no blocking, stripping or added headers).
 - The log is a SQLCipher-encrypted SQLite file in your user data folder; its key lives
   only in the macOS Keychain / Windows Credential Manager.
 - Never store `Cookie`, `Set-Cookie`, `Authorization` values, passwords or login bodies.
   Identifiers are stored as keyed hashes (HMAC), never raw.
 - Never store search queries or search-suggestion requests.
-- System-process traffic is never logged.
+- Never store a destination that is only an IP address (refused HTTP/3 attempts included);
+  the app's retry over HTTPS is recorded with its hostname.
+- System-process traffic is never logged, and system processes can't be audited.
 - No component listens on a network port; the app ⇄ analyzer link is stdio.
 - No captured content in logs, stderr, errors, or temp files. Never commit databases,
   keys, or certificates (see `.gitignore`).
@@ -61,22 +73,61 @@ venv is missing), so install the Python dependencies before running `npm start`.
 Set `SHADOW_DATA_DIR` to use a throwaway data folder during development (default:
 `~/Library/Application Support/` on macOS, `%LOCALAPPDATA%` on Windows).
 
-## Running it for real
+## Audits
+
+1. **One-time setup.** The app's consent screen installs a certificate that only this
+   computer trusts (its key stays in the Keychain / Credential Manager; it expires after 30
+   days). macOS also asks you once to allow mitmproxy's network extension.
+2. **Start an audit** on the **Audits** screen: tick the running apps to audit, choose
+   *Full* or *Metadata only* for each, pick 15 min / 30 min / 1 h / 2 h, and press Start.
+   Then use those apps as you normally would.
+3. **Watch it live** (request counts per app, per process and per site), or stop early.
+4. **When it ends**, Doppel analyses the audit and opens its report: companies, risk
+   tiers, and a per-app breakdown of which processes sent what.
+
+What an audit captures, and what it doesn't:
+
+- **The app and everything inside its bundle**, e.g. `/Applications/Slack.app/` covers
+  every Slack helper. This is matched by the OS redirector itself, so nothing is missed.
+- **Processes the app starts outside its bundle** (`node`, `curl`, updaters) are found by
+  walking the process tree five times a second (about 1 ms each time, macOS only for now),
+  and stay in scope for as long as they live, even if they replace themselves with another
+  program. A child that starts and connects within that fifth of a second can be missed.
+- **Nothing else.** Other apps aren't redirected at all, so they keep using your VPN, ad
+  blocker or DNS filter exactly as before, and cost Doppel nothing.
+- Domains you mark **Never record** (Settings) are skipped in every audit.
+
+**Browsers and apps are reported differently.** Doppel checks whether each audited app is a
+browser (on macOS: it registers as an http/https handler; Electron apps like Discord, Slack
+and VS Code don't). A browser's traffic is grouped by the **sites you visited** and the
+companies each one loaded; the page a tracker came from is worked out only for browsers. Any
+other app is grouped by **who it phones home to**: its maker's own servers (counted as first
+party), bundled SDKs such as Sentry or Firebase, and trackers. Firefox-based browsers (Firefox,
+Zen, LibreWolf) need `security.enterprise_roots.enabled` set to true in `about:config` to
+trust Doppel's certificate; the app picker reminds you.
+
+### Audit Doppel itself
+
+**Privacy → Audit Doppel itself** runs a 2, 5 or 15 minute audit of Doppel's own
+processes (the app window and the analyzer) while you keep using Doppel. The result
+lists every connection they made and checks each one against the tamper-evident list of
+outgoing calls (**Outgoing calls**): *clean* means every connection is a logged
+company-name search, *no traffic* means there was none at all. Anything else is flagged.
+
+### Command line
 
 ```bash
-.venv/bin/python -m recorder install          # consent, CA into your user trust store, start at login
-.venv/bin/python -m recorder status
-.venv/bin/python -m recorder run              # what the login item runs
-.venv/bin/python -m recorder run --fallback-proxy 8899   # if local capture fails: set system proxy to 127.0.0.1:8899
-.venv/bin/python -m recorder rotate-ca        # replace the CA (it expires after 30 days)
+.venv/bin/python -m recorder install          # consent + certificate (the app does this for you)
+.venv/bin/python -m recorder status           # certificate, running audit, leftover login item
+.venv/bin/python -m recorder audit --id N     # what the app runs for audit N; stops at its end time
+.venv/bin/python -m recorder rotate-ca        # replace the certificate (it expires after 30 days)
 .venv/bin/python -m recorder uninstall [--wipe]
 ```
 
-"Start at login" is a LaunchAgent in `~/Library/LaunchAgents` on macOS. On Windows it is
-a Task Scheduler logon task, or, when Windows refuses that without admin rights, an entry
-in your user's Run key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`); either way
-the recorder runs unelevated, and starting the capture driver shows a UAC prompt. The
-app's consent screen runs `install` for you; no admin terminal is needed.
+`install` and `uninstall` also remove the login item that older versions installed
+(`~/Library/LaunchAgents/com.shadowprofile.recorder.plist`, or the Windows logon task / Run
+key). Upgrading wipes requests recorded by the old always-on recorder; company research,
+the outgoing-calls list and your domain rules are kept.
 
 To add the local AI model and company research, see
 [Local AI and company research](#local-ai-and-company-research-optional).
@@ -90,12 +141,32 @@ Every request gets a score from 0 to 100 and a tier, using the tiers and startin
 from the original project plan. Scoring is plain rules on this computer; no AI is involved,
 and each tier badge in the app opens the breakdown.
 
-| Tier | Score | Meaning | Default action |
-|---|---|---|---|
-| Minimum utility | 0–19 | Needed for the page to work, no identifier that follows you | Leave alone |
-| Measurement | 20–49 | Counts your visit or behaviour on one site, not across sites | Show, optionally block |
-| Profile building | 50–79 | Links your activity across sites or ties it to an identity | Recommend blocking |
-| High concern | 80–100 | Profile building plus sensitive context, personal identifiers or sharing | Block and flag |
+| Tier | Score | Meaning |
+|---|---|---|
+| Minimum utility | 0–19 | Needed for the page to work, no identifier that follows you |
+| Measurement | 20–49 | Counts your visit or behaviour on one site, not across sites |
+| Profile building | 50–79 | Links your activity across sites or ties it to an identity |
+| High concern | 80–100 | Profile building plus sensitive context, personal identifiers or sharing |
+
+### Block with your own tools
+
+Doppel doesn't block anything itself: the tools people already trust do that better. Each
+audit's **Overview** has a **Block them with your own tools** panel that turns what the audit
+found into a ready-to-import list, at the risk level you pick:
+
+| Format | Works with |
+|---|---|
+| Filter list (`\|\|doubleclick.net^`) | uBlock Origin (My filters), AdGuard (User rules), Brave custom filters |
+| Domain list | NextDNS, Pi-hole, AdGuard Home, Cloudflare Gateway, Control D |
+| `.lsrules` | Little Snitch (double-click to add as a rule group) |
+| hosts file | `/etc/hosts`, Gas Mask, SwitchHosts |
+
+Only tracker domains go in the list, never a site you visited in the audit. Filter-list
+rules use `$third-party`, so `facebook.com` is blocked when another site loads it but not
+when you open Facebook; DNS-level formats can't make that distinction, so they leave out
+social and embedded-content sites and say which. It's built on
+this computer and copied or saved to a file you choose; nothing is sent. Company cards also
+offer the company's opt-out page (when research found one) and a data-access request letter.
 
 | Signal | Points |
 |---|---|
@@ -108,9 +179,17 @@ and each tier badge in the app opens the breakdown.
 | Hashed personal identifier (your email or phone) | +30 |
 | Cookie syncing (same ID sent to another company) | +30 |
 | Registered data broker (from research) | +15 |
+| Metadata-only audit: known ad, social or broker tracker loaded by a page | +20 |
+| The same ad, social or broker company on 2+ sites you visited in the audit (when no shared ID is visible) | +25 |
 | Sensitive data inside the request: health, finance, sexuality, religion, children, politics, ethnicity (also triggers ×1.5) | +30 |
 | Personal data inside the request: name, birth date, address, gender, ID numbers, precise location | +20 |
 | Page still works without it / breaks without it (breakage probe) | +10 / −20 |
+
+**Metadata-only audits** (an app set to *Metadata only*, or no certificate installed) can't see
+IDs or the Referer. Doppel infers which page a tracker was loaded by from timing: a site's own
+address (`www.healthline.com`), followed by more of that site's hosts, opens a page, and that
+process's trackers in the next minute are attributed to it and labelled "probably". So a
+Facebook pixel on Healthline scores as Profile building on a health page, not as a lone app call.
 
 Requests from pages or apps on a sensitive topic (health, finance, religion, sexuality,
 dating), or carrying sensitive data to a third party, are multiplied by 1.5, capped at 100.
@@ -185,8 +264,8 @@ fixed list or schema, falling back to keyword rules or templates if they don't m
 
 ### 3. Run the research
 
-1. **Open the app once first** so it analyses your log. Research looks up the tracker
-   companies found in your own traffic (the 50 most common).
+1. **Run an audit first.** Research looks up the tracker companies found in your own
+   audits (the 50 most common).
 2. **Check Settings → Zero-network mode is off.** When it's on, nothing is sent.
 3. **Run:**
    ```bash
@@ -194,7 +273,7 @@ fixed list or schema, falling back to keyword rules or templates if they don't m
    ```
    It prints `Researched N companies.` With the local AI on, this can take several minutes.
    Companies researched in the last 7 days are skipped, so run it again weekly.
-4. **See the results:** reopen the app → **Report** → click a company to see its policy
+4. **See the results:** reopen the app → **Companies** → click a company to see its policy
    summary, data-broker status and news.
 5. **Check what left your computer:** **Settings → What left this device** lists every
    query sent; there should be only company names. **Verify** confirms nobody edited the
@@ -206,8 +285,8 @@ fixed list or schema, falling back to keyword rules or templates if they don't m
 |---|---|
 | `No Tavily or Exa API key stored` | Run the `set-key` step above. |
 | `Zero-network mode is on: nothing was sent.` | Turn off **Settings → Zero-network mode**. |
-| `Researched 0 companies.` | No tracker companies found yet: open the app so it analyses your log, or use the computer for a while first. Also skipped: companies researched in the last 7 days. |
-| `ollama pull` or `refresh` fails with a certificate or connection error | The recorder intercepted it, and the tool checks certificates against its own list. Run it again: after the first failure the recorder lets that app's traffic to that site through without decrypting it. |
+| `Researched 0 companies.` | No tracker companies found yet: run an audit first. Also skipped: companies researched in the last 7 days. |
+| An audited app shows certificate errors | It pins certificates or doesn't use the system trust store (Firefox-based browsers: set `security.enterprise_roots.enabled` to true; Node apps ignore the Keychain). After a few failures the audit switches that app to metadata only. |
 | Topics or summaries look like keyword fallbacks | Make sure Ollama is running (tray icon), the model is pulled (`ollama list`), the setting is on, and you reopened the app afterwards. |
 
 ## Demo
@@ -215,7 +294,7 @@ fixed list or schema, falling back to keyword rules or templates if they don't m
 ```bash
 .venv/bin/pip install -r requirements-demo.txt
 .venv/bin/python -m playwright install chromium
-.venv/bin/python -m demo.persona                 # the night before
+.venv/bin/python -m demo.persona                 # during an audit of Playwright's Chromium
 .venv/bin/python scripts/predemo_check.py        # before judging
 .venv/bin/python scripts/predemo_check.py --after-uninstall
 ```
@@ -226,10 +305,13 @@ OS firewall rules are in `scripts/firewall/` (`shadow-profile.lsrules` for macOS
 ## Known gaps
 
 - Packaging (electron-builder + PyInstaller, signed binaries in a non-user-writable
-  folder) is not set up; in development the login task runs the venv's Python, and
-  `recorder status` reports it as user-writable.
-- Windows local capture starts mitmproxy's own elevated redirector (UAC prompt at login);
-  parsing stays in the unprivileged recorder process.
+  folder) is not set up; in development audits run the venv's Python.
+- Process-tree tracking is macOS only; on Windows an audit covers the app's own folder.
+  A spawned process that connects within ~0.2 s of starting can be missed (see Audits).
+- Safari's page loads go through shared WebKit system processes, so Safari can't be
+  audited; audit Chrome, Firefox or another browser instead.
+- Windows local capture starts mitmproxy's own elevated redirector (UAC prompt per
+  audit); parsing stays in the unprivileged recorder process.
 - The bundled tracker map is a curated ~120-domain subset; rebuild from Tracker Radar
   with `scripts/build_tracker_db.py`. The bundled research snapshot is signed but empty
   until a pre-fetch run is signed for release.

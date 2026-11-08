@@ -1,4 +1,8 @@
-"""Phase 6: the 'since you last opened' report and next-step actions."""
+"""The report for one audit, and next-step actions (opt-out links, data-request letters).
+
+Audits observe; they don't block. Block/strip were removed with the always-on
+recorder: use an ad blocker or VPN for that.
+"""
 
 from __future__ import annotations
 
@@ -8,47 +12,57 @@ from collections import Counter
 from urllib.parse import urlsplit
 
 from analyzer import topics, trackers
+from analyzer.audits_api import get_audit
 from analyzer.identify import registrable_domain
 from analyzer.research.summarize import safe_opt_out
 from shared import db
 from shared.protocol import ProtocolError
 
 TIER_ORDER = {"Minimum utility": 0, "Measurement": 1, "Profile building": 2, "High concern": 3}
-ACTIONS = ("block", "strip", "opt-out", "letter")
-RULE_ACTIONS = ("block", "strip")  # written into the recorder's rules
-
-
-def _since(conn) -> int:
-    v = db.get_setting(conn, "last_run_since")
-    return int(v) if v is not None else 0
+ACTIONS = ("opt-out", "letter")
 
 
 def actions_for(tier: str, has_opt_out: bool) -> list[str]:
-    """Original plan defaults: Minimum utility = leave alone; Measurement = show, optionally
-    block; Profile building = recommend blocking; High concern = block and flag."""
-    out = []
-    level = TIER_ORDER.get(tier, 0)
-    if level >= TIER_ORDER["Measurement"]:
-        out.append("block")
-    if level >= TIER_ORDER["Profile building"]:
-        out.append("strip")
-    if has_opt_out:
-        out.append("opt-out")
-    out.append("letter")
-    return out
+    return (["opt-out"] if has_opt_out else []) + ["letter"]
 
 
 def report(conn, payload) -> dict:
-    since = _since(conn)
+    audit = get_audit(conn, payload)
     rows = conn.execute(
-        "SELECT f.company, f.category, s.score, s.tier, r.app_name, r.captured_at FROM requests r "
+        "SELECT f.company, f.category, s.score, s.tier, r.app_name, r.captured_at, r.process_name, r.page_site, "
+        "r.dest_domain, f.flags FROM requests r "
         "JOIN findings f ON f.request_id = r.id JOIN scores s ON s.request_id = r.id "
-        "WHERE r.captured_at > ?", (since,)).fetchall()
+        "WHERE r.audit_id = ?", (audit.id,)).fetchall()
     companies: dict[str, dict] = {}
     per_tier = {t: 0 for t in TIER_ORDER}
     by_day: dict[str, dict[str, int]] = {}
-    for company, category, score, tier, app, at in rows:
+    apps: dict[str, dict] = {}
+    is_browser = {x.name: x.is_browser for x in audit.apps}
+    for company, category, score, tier, app, at, process, page, dest, fflags in rows:
         per_tier[tier] = per_tier.get(tier, 0) + 1
+        a = apps.setdefault(app or "Unknown app", {
+            "name": app or "Unknown app", "is_browser": is_browser.get(app, False), "requests": 0,
+            "companies": set(), "max_score": 0, "tier": "Minimum utility", "processes": Counter(),
+            "sites": {}, "destinations": {}})
+        a["requests"] += 1
+        a["processes"][process or a["name"]] += 1
+        if a["is_browser"]:
+            # Browsers: which companies each site you visited brought along.
+            site = a["sites"].setdefault(page or "", {"name": page, "requests": 0, "companies": set(),
+                                                      "max_score": 0, "tier": "Minimum utility"})
+            _tally(site, company, score, tier)
+        else:
+            # Apps: who they phone home to (their maker, bundled SDKs, trackers).
+            own = '"app_own_domain"' in (fflags or "")
+            key = "own" if own else (company or registrable_domain(dest) or dest)
+            d = a["destinations"].setdefault(key, {"name": "Its own servers" if own else key, "own": own,
+                                                   "requests": 0, "companies": set(), "max_score": 0,
+                                                   "tier": "Minimum utility"})
+            _tally(d, company, score, tier)
+        if company:
+            a["companies"].add(company)
+        if score > a["max_score"]:
+            a["max_score"], a["tier"] = score, tier
         day = dt.datetime.fromtimestamp(at / 1000).date().isoformat()  # local day
         counts = by_day.setdefault(day, {t: 0 for t in TIER_ORDER})
         counts[tier] = counts.get(tier, 0) + 1
@@ -61,80 +75,87 @@ def report(conn, payload) -> dict:
             c["apps"].add(app)
         if score > c["max_score"]:
             c["max_score"], c["tier"] = score, tier
-    taken = {}
-    for company, action in conn.execute("SELECT company, action FROM actions ORDER BY taken_at"):
+    taken: dict[str, set[str]] = {}
+    for company, action in conn.execute("SELECT company, action FROM actions WHERE action IN (?, ?)", ACTIONS):
         taken.setdefault(company, set()).add(action)
-    active = _active_rule_actions(conn)
     out = []
     for c in sorted(companies.values(), key=lambda c: (-c["max_score"], c["name"])):
         c["apps"] = sorted(c["apps"])
-        c["actions_taken"] = sorted(active.get(c["name"], set()) | (taken.get(c["name"], set()) - set(RULE_ACTIONS)))
+        c["actions_taken"] = sorted(taken.get(c["name"], set()))
         out.append(c)
+    app_rows = []
+    for a in sorted(apps.values(), key=lambda a: (-a["max_score"], -a["requests"], a["name"])):
+        sites, dests = a.pop("sites"), a.pop("destinations")
+        row = {**a, "companies": len(a["companies"]),
+               "processes": [{"name": n, "requests": k} for n, k in a["processes"].most_common()]}
+        if a["is_browser"]:
+            row["sites"] = _ranked(v for k, v in sites.items() if k)  # requests with no known page are left out
+        else:
+            row["destinations"] = _ranked(dests.values())
+        app_rows.append(row)
     return {
-        "summary": {"since": since, "requests": len(rows), "companies": len(companies),
+        "audit": audit.public(),
+        "summary": {"requests": len(rows), "companies": len(companies),
                     "high_concern": sum(1 for c in companies.values() if c["tier"] == "High concern")},
+        "apps": app_rows,
         "companies": out,
         "tier_requests": per_tier,
         "by_day": [{"date": d, "counts": by_day[d]} for d in sorted(by_day)],
     }
 
 
+def _tally(group: dict, company: str | None, score: int, tier: str) -> None:
+    group["requests"] += 1
+    if company:
+        group["companies"].add(company)
+    if score > group["max_score"]:
+        group["max_score"], group["tier"] = score, tier
+
+
+def _ranked(groups) -> list[dict]:
+    out = [{**g, "companies": sorted(g["companies"])} for g in groups]
+    return sorted(out, key=lambda g: (-g["max_score"], -g["requests"], str(g["name"])))[:25]
+
+
 def list_requests(conn, payload) -> dict:
-    """Every scored request since the last open, newest first (capped)."""
+    """Every scored request in an audit, newest first (capped)."""
+    audit = get_audit(conn, payload)
     limit = payload.get("limit", 1000)
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 5000:
         raise ProtocolError("bad_payload", "limit must be an integer from 1 to 5000")
     rows = conn.execute(
-        "SELECT r.id, r.captured_at, r.app_name, r.dest_domain, f.company, f.summary, f.topic, "
+        "SELECT r.id, r.captured_at, r.app_name, r.process_name, r.dest_domain, f.company, f.summary, f.topic, "
         "s.score, s.tier, s.breakdown FROM requests r "
         "JOIN findings f ON f.request_id = r.id JOIN scores s ON s.request_id = r.id "
-        "WHERE r.captured_at > ? ORDER BY r.captured_at DESC LIMIT ?", (_since(conn), limit + 1)).fetchall()
-    out = [{"id": rid, "captured_at": at, "app_name": app, "dest_domain": dest, "company": company,
+        "WHERE r.audit_id = ? ORDER BY r.captured_at DESC LIMIT ?", (audit.id, limit + 1)).fetchall()
+    out = [{"id": rid, "captured_at": at, "app_name": app, "process_name": proc, "dest_domain": dest, "company": company,
             "summary": summary, "topic": topic, "sensitive": topic in topics.SENSITIVE_TOPICS or '"sensitive_data"' in (breakdown or ""),
             "score": score, "tier": tier, "breakdown": json.loads(breakdown or "[]")}
-           for rid, at, app, dest, company, summary, topic, score, tier, breakdown in rows[:limit]]
+           for rid, at, app, proc, dest, company, summary, topic, score, tier, breakdown in rows[:limit]]
     return {"requests": out, "truncated": len(rows) > limit}
-
-
-def _active_rule_actions(conn) -> dict[str, set[str]]:
-    """Which companies currently have a block/strip rule in force."""
-    tdb = trackers.default()
-    rules = dict(conn.execute("SELECT match, rule FROM app_rules WHERE kind = 'action'").fetchall())
-    out: dict[str, set[str]] = {}
-    for name in {r[0] for r in conn.execute("SELECT DISTINCT company FROM actions")}:
-        for d in company_domains(conn, name, tdb):
-            if d in rules:
-                out.setdefault(name, set()).add(rules[d])
-    return out
-
-
-def company_domains(conn, company: str, tdb: trackers.TrackerDB | None = None) -> set[str]:
-    tdb = tdb or trackers.default()
-    domains = {d for d, e in tdb.domains.items() if e.get("company") == company}
-    domains |= {r[0] for r in conn.execute(
-        "SELECT DISTINCT r.dest_domain FROM requests r JOIN findings f ON f.request_id = r.id WHERE f.company = ?",
-        (company,))}
-    return {d.lower() for d in domains if d}
 
 
 def company_detail(conn, payload) -> dict:
     company = payload.get("company")
     if not isinstance(company, str) or not company:
         raise ProtocolError("bad_payload", "company is required")
+    audit = get_audit(conn, payload)
     tdb = trackers.default()
     reqs = conn.execute(
-        "SELECT r.id, r.captured_at, r.app_name, r.dest_domain, f.summary, f.flags, f.topic, s.score, s.tier, s.breakdown "
+        "SELECT r.id, r.captured_at, r.app_name, r.process_name, r.dest_domain, f.summary, f.flags, f.topic, "
+        "s.score, s.tier, s.breakdown "
         "FROM requests r JOIN findings f ON f.request_id = r.id JOIN scores s ON s.request_id = r.id "
-        "WHERE f.company = ? AND r.captured_at > ? ORDER BY s.score DESC, r.captured_at DESC LIMIT 200",
-        (company, _since(conn))).fetchall()
+        "WHERE f.company = ? AND r.audit_id = ? ORDER BY s.score DESC, r.captured_at DESC LIMIT 200",
+        (company, audit.id)).fetchall()
     flags, topics_, apps = Counter(), Counter(), Counter()
     requests = []
-    for rid, at, app, dest, summary, fl, topic, score, tier, breakdown in reqs:
+    for rid, at, app, proc, dest, summary, fl, topic, score, tier, breakdown in reqs:
         for f in json.loads(fl or "[]"):
             flags[f["flag"]] += 1
         topics_[topic] += 1
         apps[app] += 1
-        requests.append({"id": rid, "captured_at": at, "app_name": app, "dest_domain": dest, "summary": summary,
+        requests.append({"id": rid, "captured_at": at, "app_name": app, "process_name": proc, "dest_domain": dest,
+                         "summary": summary,
                          "score": score, "tier": tier, "breakdown": json.loads(breakdown or "[]")})
     row = conn.execute("SELECT policy_summary, is_data_broker, opt_out_url, news, sources, researched_at, from_snapshot "
                        "FROM companies WHERE name = ?", (company,)).fetchone()
@@ -186,32 +207,9 @@ def take_action(conn, payload) -> dict:
     company, action = payload.get("company"), payload.get("action")
     if action not in ACTIONS:
         raise ProtocolError("bad_payload", f"action must be one of {', '.join(ACTIONS)}")
-    if not isinstance(company, str):
+    if not isinstance(company, str) or not company:
         raise ProtocolError("bad_payload", "company is required")
-    if action == "letter":
-        # Generated locally; nothing is sent.
-        conn.execute("INSERT INTO actions (company, action, taken_at) VALUES (?, 'letter', ?)", (company, db.now_ms()))
-        return {"ok": True, "letter": LETTER.format(company=company)}
-    domains = company_domains(conn, company)
-    if not domains:
-        raise ProtocolError("unknown_company", "no domains known for that company")
-    if action in RULE_ACTIONS:
-        for d in domains:
-            existing = conn.execute("SELECT rule FROM app_rules WHERE kind = 'action' AND match = ?", (d,)).fetchone()
-            if existing and existing[0] == "block" and action == "strip":
-                continue  # block already covers strip
-            conn.execute(
-                "INSERT INTO app_rules (kind, match, rule, source, updated_at) VALUES ('action', ?, ?, 'user', ?) "
-                "ON CONFLICT(kind, match) DO UPDATE SET rule = excluded.rule, updated_at = excluded.updated_at",
-                (d, action, db.now_ms()))
     conn.execute("INSERT INTO actions (company, action, taken_at) VALUES (?, ?, ?)", (company, action, db.now_ms()))
-    return {"ok": True, "domains": sorted(domains)}
-
-
-def undo_action(conn, payload) -> dict:
-    company, action = payload.get("company"), payload.get("action")
-    if action not in RULE_ACTIONS or not isinstance(company, str):
-        raise ProtocolError("bad_payload", "only block and strip can be undone")
-    for d in company_domains(conn, company):
-        conn.execute("DELETE FROM app_rules WHERE kind = 'action' AND match = ? AND rule = ?", (d, action))
+    if action == "letter":
+        return {"ok": True, "letter": LETTER.format(company=company)}  # generated locally; nothing is sent
     return {"ok": True}

@@ -7,6 +7,7 @@ import pytest
 from analyzer import privacy_checks as pc
 from analyzer.research import ledger
 from shared import db
+from tests.helpers import make_audit
 
 KNOWN = {"Criteo", "Meta"}
 H = "a" * 64  # looks like a keyed hash
@@ -16,6 +17,7 @@ H = "a" * 64  # looks like a keyed hash
 def env(tmp_path, db_key):
     path = tmp_path / "shadow.db"
     conn = db.open_db(path, db_key)
+    make_audit(conn, started_at=db.now_ms() - 60_000)  # audit 1
     return {"conn": conn, "path": path, "dir": tmp_path, "key": db_key}
 
 
@@ -28,7 +30,7 @@ def run(env, **overrides):
 
 
 def add(conn, **cols):
-    base = {"captured_at": db.now_ms(), "dest_domain": "t.example", "analyzed": 0}
+    base = {"audit_id": 1, "captured_at": db.now_ms(), "dest_domain": "t.example", "analyzed": 0}
     base.update(cols)
     names = ", ".join(base)
     conn.execute(f"INSERT INTO requests ({names}) VALUES ({', '.join('?' * len(base))})", list(base.values()))
@@ -36,7 +38,7 @@ def add(conn, **cols):
 
 def test_clean_install_passes_everything_that_applies(env):
     checks = run(env)
-    assert set(checks) == {"encrypted", "key_not_on_disk", "ids_hashed", "no_credentials", "no_search_queries",
+    assert set(checks) == {"only_during_audits", "no_background", "encrypted", "key_not_on_disk", "ids_hashed", "no_credentials", "no_search_queries",
                            "raw_deleted", "no_listeners", "local_ai_local", "only_company_names", "gate_allowlist",
                            "zero_network"}
     for c in checks.values():
@@ -176,3 +178,19 @@ def test_gate_allowlist_and_zero_network(env):
 def test_handler_is_registered():
     from analyzer import handlers
     assert "privacy_checks" in handlers.HANDLERS
+
+
+def test_requests_outside_their_audit_window_are_caught(env):
+    add(env["conn"])
+    assert run(env)["only_during_audits"]["ok"] is True
+    add(env["conn"], captured_at=1)  # long before audit 1 started
+    out = run(env)["only_during_audits"]
+    assert out["ok"] is False and "1 stored request" in out["detail"]
+
+
+def test_background_recorder_or_login_item_is_caught(env):
+    assert run(env)["no_background"]["ok"] is True
+    assert run(env, legacy_login_item=True)["no_background"]["ok"] is False
+    assert run(env, recorder_running=True)["no_background"]["ok"] is False
+    make_audit(env["conn"], status="running", started_at=db.now_ms())
+    assert run(env, recorder_running=True)["no_background"]["ok"] is True

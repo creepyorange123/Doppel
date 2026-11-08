@@ -16,6 +16,8 @@ Everything here is pure (no I/O) so it can be tested exhaustively. The rules:
 
 from __future__ import annotations
 
+import ipaddress
+
 import json
 import math
 import re
@@ -88,6 +90,18 @@ DOH_HOSTS = (
 )
 DOH_PATH_RE = re.compile(r"^/(dns-query|resolve)(/|\?|$)", re.IGNORECASE)
 DNS_CONTENT_TYPES = ("application/dns-message", "application/dns-json")
+
+
+def is_ip_literal(host: str | None) -> bool:
+    """A bare IPv4/IPv6 address rather than a hostname. These are never stored: they
+    say nothing about who receives the data, and they are noise in an audit."""
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return True
+    except ValueError:
+        return False
 
 
 def is_doh_host(host: str) -> bool:
