@@ -47,11 +47,11 @@ export function Overview({
           <dd>{num(summary.companies)}</dd>
         </div>
         <div>
-          <dt>Severe risk</dt>
+          <dt>High concern</dt>
           <dd>{count("high")}</dd>
         </div>
         <div>
-          <dt>High risk</dt>
+          <dt>Profile building</dt>
           <dd>{count("profile")}</dd>
         </div>
       </dl>

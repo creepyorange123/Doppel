@@ -51,6 +51,23 @@ def tier_for(value: int) -> str:
     return "Minimum utility"
 
 
+def migrate_legacy_tiers(conn) -> int:
+    """Rows scored before the tiers were renamed (Low, Moderate, Profile-building) get
+    the current tier name for their saved score. Safe to run on every start."""
+    names = ", ".join("?" * len(TIER_NAMES))
+    rows = conn.execute(f"SELECT request_id, score FROM scores WHERE tier NOT IN ({names})", TIER_NAMES).fetchall()
+    if rows:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.executemany("UPDATE scores SET tier = ? WHERE request_id = ?",
+                             [(tier_for(s), rid) for rid, s in rows])
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+    return len(rows)
+
+
 @dataclass
 class Input:
     company: str | None

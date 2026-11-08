@@ -7,44 +7,37 @@ export type TierKey = "minimum" | "measurement" | "profile" | "high";
 export const TIER_KEYS: TierKey[] = ["high", "profile", "measurement", "minimum"];
 
 export const TIER_KEY: Record<Tier, TierKey> = {
-  Low: "minimum",
-  Moderate: "measurement",
-  "Profile-building": "profile",
+  "Minimum utility": "minimum",
+  Measurement: "measurement",
+  "Profile building": "profile",
   "High concern": "high",
 };
 
-export const TIER_OF_KEY: Record<TierKey, Tier> = {
-  minimum: "Low",
-  measurement: "Moderate",
-  profile: "Profile-building",
-  high: "High concern",
-};
-
-// Score ranges match analyzer/score.py TIERS.
+// Names, score ranges and meanings match analyzer/score.py TIERS and the README.
 export const TIER_INFO: Record<TierKey, { label: string; behavior: string; range: string; meaning: string }> = {
   minimum: {
-    label: "Low",
+    label: "Minimum utility",
     behavior: "Essential",
-    range: "0–24",
-    meaning: "needed for the app or page to work, with nothing that follows you",
+    range: "0–19",
+    meaning: "needed for the app or page to work, with no identifier that follows you",
   },
   measurement: {
-    label: "Moderate",
+    label: "Measurement",
     behavior: "Analytics",
-    range: "25–49",
-    meaning: "counts usage without linking it across sites or apps",
+    range: "20–49",
+    meaning: "counts your visit or behaviour on one site, not across sites",
   },
   profile: {
-    label: "High",
+    label: "Profile building",
     behavior: "Tracking",
-    range: "50–74",
-    meaning: "follows you across sites or apps, or ties activity to you",
+    range: "50–79",
+    meaning: "links your activity across sites or ties it to an identity",
   },
   high: {
-    label: "Severe",
+    label: "High concern",
     behavior: "Profiling",
-    range: "75–100",
-    meaning: "tracking plus sensitive topics, personal identifiers or data sharing",
+    range: "80–100",
+    meaning: "profile building plus sensitive topics, personal identifiers or data sharing",
   },
 };
 
