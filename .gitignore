@@ -33,3 +33,7 @@ Thumbs.db
 .idea/
 # Public key used to verify the signed research snapshot (safe to publish).
 !shared/data/snapshot_public_key.pem
+
+# Development-only plaintext traffic logs (recorder run --dev-traffic-log)
+dev-logs/
+*.traffic.log
