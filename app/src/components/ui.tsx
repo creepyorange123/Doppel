@@ -10,7 +10,7 @@ export function TierBadge({ tier, score, compact = false }: { tier: Tier; score?
   const k = tierKey(tier);
   const info = TIER_INFO[k];
   return (
-    <span className={`tier tier-${k}`} title={`${info.label} risk (${info.range}). ${info.behavior}: ${info.meaning}`}>
+    <span className={`tier tier-${k}`} title={`${info.label} (score ${info.range}). ${info.behavior}: ${info.meaning}`}>
       {score !== undefined && <span className="tier-score">{score}</span>}
       {!compact && <span className="tier-label">{info.label}</span>}
     </span>

@@ -236,3 +236,18 @@ def test_review_export_and_report(conn, tmp_path):
         w.writeheader()
         w.writerows(rows)
     assert review.report(str(p))["agreement"] == 1.0
+
+
+def test_rows_saved_under_old_tier_names_are_renamed_from_their_score(tmp_path, db_key):
+    from shared import db as _db
+
+    c = _db.open_db(tmp_path / "m.db", db_key)
+    for rid, s, old in [(1, 10, "Low"), (2, 22, "Low"), (3, 40, "Moderate"), (4, 60, "Profile-building"),
+                        (5, 90, "High concern"), (6, 30, "Measurement")]:
+        c.execute("INSERT INTO requests (id, captured_at, dest_domain) VALUES (?, 1, 'x')", (rid,))
+        c.execute("INSERT INTO scores (request_id, score, tier, breakdown) VALUES (?, ?, ?, '[]')", (rid, s, old))
+    assert score.migrate_legacy_tiers(c) == 4
+    tiers = dict(c.execute("SELECT request_id, tier FROM scores"))
+    assert tiers == {1: "Minimum utility", 2: "Measurement", 3: "Measurement", 4: "Profile building",
+                     5: "High concern", 6: "Measurement"}
+    assert score.migrate_legacy_tiers(c) == 0  # safe to run on every start

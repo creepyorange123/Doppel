@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ACTION_LABELS, summaryLine, safeExternalLink } from "./report";
-import { countsByKey, tierKey } from "./tiers";
+import { countsByKey, TIER_INFO, TIER_KEYS, tierKey } from "./tiers";
 
 describe("summaryLine", () => {
   it("matches the plan's wording", () => {
@@ -21,10 +21,20 @@ describe("summaryLine", () => {
 describe("tiers", () => {
   it("maps every analyzer tier to a display level", () => {
     expect(tierKey("High concern")).toBe("high");
-    expect(tierKey("Profile-building")).toBe("profile");
-    expect(tierKey("Moderate")).toBe("measurement");
-    expect(tierKey("Low")).toBe("minimum");
-    expect(countsByKey({ Low: 2, "High concern": 1 })).toEqual({ high: 1, profile: 0, measurement: 0, minimum: 2 });
+    expect(tierKey("Profile building")).toBe("profile");
+    expect(tierKey("Measurement")).toBe("measurement");
+    expect(tierKey("Minimum utility")).toBe("minimum");
+    expect(
+      countsByKey({ "Minimum utility": 2, Measurement: 3, "Profile building": 4, "High concern": 1 }),
+    ).toEqual({ high: 1, profile: 4, measurement: 3, minimum: 2 });
+  });
+  it("labels and ranges match analyzer/score.py", () => {
+    expect(TIER_KEYS.map((k) => [TIER_INFO[k].label, TIER_INFO[k].range])).toEqual([
+      ["High concern", "80–100"],
+      ["Profile building", "50–79"],
+      ["Measurement", "20–49"],
+      ["Minimum utility", "0–19"],
+    ]);
   });
 });
 

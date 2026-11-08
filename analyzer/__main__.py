@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from analyzer import handlers, pipeline, setup
+from analyzer import handlers, pipeline, score, setup
 from analyzer.research import snapshot
 from shared import db, protocol
 
@@ -29,6 +29,7 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     conn = db.open_db()
     pipeline.STEPS[:], pipeline.SCORE_STEPS[:] = setup.build_steps(conn)
+    score.migrate_legacy_tiers(conn)  # rows scored under the old tier names
     try:
         # Profile cards fall back to the signed snapshot (and only it, in zero-network mode).
         snapshot.import_into(conn, snapshot.load_verified())
