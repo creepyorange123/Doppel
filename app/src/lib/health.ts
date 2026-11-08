@@ -41,3 +41,21 @@ export function recorderRunning(statusOutput: string): boolean | null {
   }
   return null;
 }
+
+export interface RecorderLine {
+  text: string;
+  state: "ok" | "warn" | "off";
+}
+
+/** Sidebar/Settings status for the recorder. `running` (is the process alive) wins
+ *  over the heartbeat, so the dot changes the moment the recorder is turned on or off. */
+export function recorderStatusLine(running: boolean | null, heartbeat: number | null, now: number = Date.now()): RecorderLine {
+  const health = recorderHealth(heartbeat, now);
+  if (running === false) return { text: "Recorder off", state: "warn" };
+  if (running === true) {
+    return health.state === "stale" ? { text: "Recorder not responding", state: "warn" } : { text: "Recorder on", state: "ok" };
+  }
+  if (health.state === "ok") return { text: "Recorder on", state: "ok" };
+  if (health.state === "never") return { text: "Recorder not started", state: "off" };
+  return { text: "Recorder stopped", state: "warn" };
+}

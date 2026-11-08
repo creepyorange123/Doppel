@@ -70,8 +70,8 @@ export function Settings({
       </header>
       <div className="pref">
         <span className="pref-name">
-          <span className={`dot dot-${running === false ? "off" : recorder.state}`} /> Recorder
-          <span className="muted pref-hint">{running === false ? "Recorder off" : recorder.text}</span>
+          <span className={`dot dot-${recorder.state}`} /> Recorder
+          <span className="muted pref-hint">{recorder.text}</span>
         </span>
         <span className="pref-actions">
           <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => void recorderAction("status")}>

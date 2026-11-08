@@ -8,7 +8,7 @@ import type {
   Settings as SettingsData,
   StatusResult,
 } from "./shared/protocol";
-import { recorderHealth, recorderRunning } from "./lib/health";
+import { recorderHealth, recorderRunning, recorderStatusLine } from "./lib/health";
 import { Sidebar, type StatusLine, type View } from "./components/Sidebar";
 import { Opening } from "./components/Opening";
 import { Modal, Toasts, type ToastItem } from "./components/ui";
@@ -131,14 +131,26 @@ export function App() {
     store("doppel-theme", theme);
   }, [theme]);
 
-  // Ask once at startup whether the recorder process is running, so Settings opens
-  // with the right label; Settings updates this after Check / Turn on / Turn off.
+  // Whether the recorder process is running: checked at startup, then every 30 s, so
+  // the status dot follows the recorder even if it stops on its own. Settings also
+  // updates it right after Check / Turn on / Turn off.
   useEffect(() => {
-    window.shadow
-      .recorder("status")
-      .then((res) => setRecorderOn(res.ok ? recorderRunning(res.output) : null))
-      .catch(() => setRecorderOn(null));
-  }, []);
+    const check = () => {
+      window.shadow
+        .recorder("status")
+        .then((res) => setRecorderOn(res.ok ? recorderRunning(res.output) : null))
+        .catch(() => setRecorderOn(null));
+      void loadStatus(); // fresh heartbeat
+    };
+    check();
+    const timer = window.setInterval(check, 30_000);
+    return () => window.clearInterval(timer);
+  }, [loadStatus]);
+
+  const onRecorderRunning = (running: boolean | null) => {
+    setRecorderOn(running);
+    void loadStatus();
+  };
 
   useEffect(() => store("doppel-sidebar", collapsed ? "collapsed" : "open"), [collapsed]);
 
@@ -206,13 +218,10 @@ export function App() {
   };
 
   const health = status ? recorderHealth(status.recorder_heartbeat_at) : null;
-  const recorderLine: StatusLine = !health
-    ? { text: "Recorder", state: "off" }
-    : health.state === "ok"
-      ? { text: "Recorder on", state: "ok" }
-      : health.state === "never"
-        ? { text: "Recorder not started", state: "off" }
-        : { text: "Recorder stopped", state: "warn" };
+  const recorderLine: StatusLine =
+    !status && recorderOn === null
+      ? { text: "Recorder", state: "off" }
+      : recorderStatusLine(recorderOn, status?.recorder_heartbeat_at ?? null);
   const statusLines: StatusLine[] = [
     recorderLine,
     settings?.local_ai ? { text: "Local AI on", state: "ok" } : { text: "Keyword rules", state: "ok" },
@@ -253,7 +262,15 @@ export function App() {
     );
   }
 
-  const notice = !noticeDismissed && health && health.state !== "ok" ? health.message : null;
+  const notice = noticeDismissed
+    ? null
+    : recorderOn === false
+      ? "The recorder is off, so nothing is being logged. Turn it on in Settings."
+      : recorderOn === true && health?.state === "never"
+        ? null
+        : health && health.state !== "ok"
+          ? health.message
+          : null;
   const waiting = (
     <div className="view">
       <p className="empty">{analyzing ? `${progress?.label ?? "Analyzing"}…` : lastRun ? "Building report…" : "No report yet."}</p>
@@ -313,7 +330,7 @@ export function App() {
           {view === "apps" && <Apps onToast={toast} />}
           {view === "settings" &&
             (settings ? (
-              <Settings settings={settings} onChange={changeSetting} recorder={recorderLine} running={recorderOn} onRunning={setRecorderOn} theme={theme} onTheme={setTheme} onToast={toast} />
+              <Settings settings={settings} onChange={changeSetting} recorder={recorderLine} running={recorderOn} onRunning={onRecorderRunning} theme={theme} onTheme={setTheme} onToast={toast} />
             ) : (
               waiting
             ))}

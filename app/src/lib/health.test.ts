@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recorderHealth, recorderRunning, RULE_LABELS } from "./health";
+import { recorderHealth, recorderRunning, recorderStatusLine, RULE_LABELS } from "./health";
 
 describe("recorderHealth", () => {
   const now = 1_000_000_000;
@@ -28,5 +28,22 @@ describe("recorderRunning", () => {
   it("is unknown for garbage or missing field", () => {
     expect(recorderRunning("Traceback ...")).toBeNull();
     expect(recorderRunning("{}")).toBeNull();
+  });
+});
+
+describe("recorderStatusLine", () => {
+  const now = 1_000_000_000;
+  it("is red as soon as the recorder is turned off, even with a fresh heartbeat", () =>
+    expect(recorderStatusLine(false, now - 1000, now)).toEqual({ text: "Recorder off", state: "warn" }));
+  it("is green when running with a fresh heartbeat", () =>
+    expect(recorderStatusLine(true, now - 1000, now)).toEqual({ text: "Recorder on", state: "ok" }));
+  it("is green right after turning on, before the first heartbeat", () =>
+    expect(recorderStatusLine(true, null, now).state).toBe("ok"));
+  it("warns when running but no heartbeat for minutes", () =>
+    expect(recorderStatusLine(true, now - 10 * 60_000, now)).toEqual({ text: "Recorder not responding", state: "warn" }));
+  it("falls back to the heartbeat when the state is unknown", () => {
+    expect(recorderStatusLine(null, now - 1000, now).state).toBe("ok");
+    expect(recorderStatusLine(null, now - 10 * 60_000, now)).toEqual({ text: "Recorder stopped", state: "warn" });
+    expect(recorderStatusLine(null, null, now)).toEqual({ text: "Recorder not started", state: "off" });
   });
 });
