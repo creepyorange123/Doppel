@@ -1701,3 +1701,7 @@ a.btn-quiet {
   min-width: 76px;
   justify-content: center;
 }
+.section-title {
+  margin-top: 40px;
+  margin-bottom: 16px;
+}
